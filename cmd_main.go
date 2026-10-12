@@ -23,7 +23,8 @@ import (
 	"git-protect/internal/crypt"
 )
 
-const version = "0.1.0"
+// version is set at build time: go build -ldflags "-X main.version=v1.2.3"
+var version = "dev"
 
 func main() {
 	base := strings.ToLower(strings.TrimSuffix(filepath.Base(os.Args[0]), filepath.Ext(os.Args[0])))
@@ -33,7 +34,7 @@ func main() {
 	os.Exit(runCLI(os.Args[1:]))
 }
 
-const usage = `git-protect ` + version + ` —— Git 仓库透明加密
+var usage = `git-protect ` + version + ` —— Git 仓库透明加密
 
 用法: git protect <命令> [参数]（也可以直接运行 git-protect <命令>）
 

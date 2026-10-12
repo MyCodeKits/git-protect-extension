@@ -1,10 +1,15 @@
 # git-protect installer for Windows (per-user, no administrator rights needed).
-# Usage: powershell -ExecutionPolicy Bypass -File scripts\install.ps1 [-Source <path to git-protect.exe>]
+# Release package: powershell -ExecutionPolicy Bypass -File install.ps1
+# Source checkout: powershell -ExecutionPolicy Bypass -File scripts\install.ps1 [-Source <path to git-protect.exe>]
 param([string]$Source = "")
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 if ($Source -eq "") {
+    # a release package ships the binary next to this script
+    $Source = Join-Path $PSScriptRoot "git-protect.exe"
+}
+if (-not (Test-Path $Source)) {
     $Source = Join-Path $root "bin\git-protect.exe"
     if (-not (Test-Path $Source)) {
         Write-Host "Building git-protect..."
@@ -19,6 +24,8 @@ New-Item -ItemType Directory -Force $dest | Out-Null
 Copy-Item $Source (Join-Path $dest "git-protect.exe") -Force
 # the same binary acts as the git remote helper when named git-remote-protect
 Copy-Item $Source (Join-Path $dest "git-remote-protect.exe") -Force
+# drop the "downloaded from the internet" mark so Windows does not warn on every run
+Get-ChildItem $dest -Filter *.exe | Unblock-File
 
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if (($userPath -split ";") -notcontains $dest) {

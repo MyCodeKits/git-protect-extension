@@ -56,15 +56,30 @@ Git 允许通过外部程序扩展远程传输方式。远程地址写成 `prote
 
 环境要求：Git 2.31 或更高版本。
 
+从 [Releases](https://github.com/MyCodeKits/git-protect-extension/releases) 页面下载对应平台的压缩包并解压：
+
+| 平台 | 文件 |
+|---|---|
+| Windows（64 位） | `git-protect_<版本>_windows_amd64.zip` |
+| Windows（ARM） | `git-protect_<版本>_windows_arm64.zip` |
+| macOS（Apple 芯片） | `git-protect_<版本>_darwin_arm64.tar.gz` |
+| macOS（Intel） | `git-protect_<版本>_darwin_amd64.tar.gz` |
+| Linux | `git-protect_<版本>_linux_amd64.tar.gz` / `linux_arm64.tar.gz` |
+
+在解压后的目录中运行安装脚本：
+
 **Windows**（不需要管理员权限）
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
 **macOS / Linux**
 ```sh
-sh scripts/install.sh
+sh install.sh
 ```
+
+> 如需从源码安装，请在仓库根目录执行 `scripts\install.ps1` 或 `sh scripts/install.sh`（需要 Go 1.24 或更高版本）。
+> 程序未经代码签名：Windows 可能提示“未知发布者”，选择“仍要运行”即可；macOS 的隔离标记会由安装脚本自动清除。
 
 安装完成后重启终端和 IDE，然后执行环境检查：
 ```sh
@@ -112,6 +127,31 @@ git push
 
 ## 使用指南
 
+### 密钥说明
+
+Git Protect 中有两种密钥，职责不同：
+
+| | 成员密钥对 | 仓库主密钥 |
+|---|---|---|
+| 数量 | 每人一对，所有加密仓库共用 | 每个加密仓库一把 |
+| 产生方式 | 成员执行 `git protect keygen` 生成（也可复用已有的 SSH 密钥） | `git protect init` 时自动随机生成（256 位） |
+| 保存位置 | 本人电脑：`%AppData%\git-protect` 或 `~/.config/git-protect` | 每位成员本地仓库的 `.git/protect/key`；远程只保存以各成员公钥加密后的副本 |
+| 用途 | 证明“我是谁”：解开仓库主密钥、签署成员变更 | 加密和解密仓库内容 |
+| 需要手动设置吗 | 只需生成一次 | **不需要**。不存在需要输入或配置的仓库口令 |
+
+各场景下的密钥操作：
+
+| 场景 | 需要做的事 | 密钥如何产生和分发 |
+|---|---|---|
+| 第一次使用 | `git protect keygen` | 生成本人的成员密钥对（只需一次） |
+| 新建加密项目 | `git protect init --remote <空仓库>` | 自动生成仓库主密钥，并用你的公钥加密存入远程 |
+| 现有项目改为加密 | 同上，见[在现有项目中使用](#在现有项目中使用) | 同上 |
+| 加入已有的加密项目 | 提供公钥给现有成员，然后 `git clone` | 现有成员 `git protect add` 时，用你的公钥加密一份仓库主密钥；克隆时自动用你的私钥解开 |
+| 移除成员 / 轮换 | `git protect remove` / `rotate` | 自动生成新的仓库主密钥，只为保留的成员重新加密 |
+| 换新电脑 | 复制成员密钥对到新电脑，或生成新密钥对后请现有成员登记 | 克隆时自动解锁 |
+
+仓库主密钥始终是随机生成的，不由人设定，因此不存在弱口令问题。唯一需要人工保管的是**成员私钥**和 `git protect backup` 生成的**备份**。
+
 ### 成员密钥对
 
 每位成员在自己的电脑上生成密钥对，不需要向任何人或服务器申请：
@@ -129,6 +169,36 @@ git protect whoami
 - 密钥对的生成、加密和签名全部在 Git Protect 内部完成，不依赖 SSH 客户端、OpenSSH 或 GPG，各平台行为一致。
 - 密钥采用与 OpenSSH 兼容的格式（公钥是以 `ssh-ed25519` 开头的一行文本）。这只是格式约定，Git Protect 不会使用 SSH 协议或调用 SSH 程序。已有 `~/.ssh/id_ed25519` 的成员可以直接复用，无需重新生成。
 - **持有密钥对并不代表能够访问仓库。** 只有被现有成员登记的公钥才能解锁。
+
+### 在现有项目中使用
+
+将已有的项目转为加密存储，提交历史（SHA、作者、日期、提交信息）保持不变。
+
+**项目负责人**
+```sh
+cd existing-project
+git protect keygen                          # 第一次使用时执行
+git remote rename origin old                # 保留原来的远程（可选）
+git protect init --remote https://github.com/org/new-repo.git --name 张三
+git push -u origin --all
+git push origin --tags
+git protect backup
+git remote remove old                       # 确认迁移完成后删除原来的远程
+```
+- 新的远程仓库必须为空。
+- `git protect init` 会把 `origin` 指向新的加密地址。之后向任何普通地址（包括原来的远程）推送都会被拦截。
+- 迁移完成后，请删除原来的明文仓库，或将其设为私有。
+
+**团队其他成员**：无需重新克隆，在现有的本地仓库中切换远程地址即可。
+```sh
+git protect whoami                          # 将公钥发给负责人，由负责人执行 git protect add
+git remote set-url origin protect::https://github.com/org/new-repo.git
+git fetch origin
+git branch --set-upstream-to=origin/main
+```
+本地已有的提交与远程完全一致，切换后不会重新下载数据。
+
+> **原仓库曾经公开过的情况**：已经公开的历史可能已被他人复制，加密无法收回。如果其中包含密码、令牌等敏感信息，应当立即在对应系统中更换这些凭据。
 
 ### 添加成员
 
@@ -475,7 +545,8 @@ cmd_git.go         Git 调用封装（隔离环境变量，禁用钩子与签名
 cmd_util.go        原子写入、文件权限、文件锁
 internal/crypt     加密文件格式
 internal/sshsig    清单签名（SSHSIG 格式）
-scripts/           安装脚本
+scripts/           安装与打包脚本
+.github/workflows  持续集成与自动发布
 test/              单元测试与端到端测试
 DESIGN.md          完整设计文档
 ```
@@ -486,3 +557,12 @@ go build -o bin/git-protect .
 cp bin/git-protect bin/git-remote-protect      # Windows 下为 .exe
 ```
 同一个可执行文件根据文件名决定行为：`git-protect` 为管理命令，`git-remote-protect` 为供 Git 调用的扩展。
+
+### 发布
+
+推送代码或提交 PR 时，GitHub Actions 会在 Windows、macOS、Linux 上运行全部测试。推送版本标签时，会在测试通过后编译全部平台，并自动创建 Release：
+```sh
+git tag v0.1.0
+git push github v0.1.0
+```
+本地生成同样的发布包：`sh scripts/package.sh v0.1.0 dist`。
