@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	. "genc/internal/crypt"
+	. "git-protect/internal/crypt"
 )
 
 func mustKey(t *testing.T) Key {

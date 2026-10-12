@@ -20,25 +20,25 @@ import (
 
 	"filippo.io/age"
 
-	"genc/internal/crypt"
+	"git-protect/internal/crypt"
 )
 
 const version = "0.1.0"
 
 func main() {
 	base := strings.ToLower(strings.TrimSuffix(filepath.Base(os.Args[0]), filepath.Ext(os.Args[0])))
-	if strings.HasPrefix(base, "git-remote-genc") {
+	if strings.HasPrefix(base, "git-remote-protect") {
 		os.Exit(runHelper(os.Args[1:]))
 	}
 	os.Exit(runCLI(os.Args[1:]))
 }
 
-const usage = `genc ` + version + ` —— Git 仓库透明加密
+const usage = `git-protect ` + version + ` —— Git 仓库透明加密
 
-用法: genc <命令> [参数]
+用法: git protect <命令> [参数]（也可以直接运行 git-protect <命令>）
 
   init     --remote <地址> [--name 名字]   把当前仓库初始化为加密仓库
-  clone    <地址> [目录]                   克隆（私钥有口令时使用；否则直接 git clone genc::<地址>）
+  clone    <地址> [目录]                   克隆（私钥有口令时使用；否则直接 git clone protect::<地址>）
   unlock                                  用本人私钥解锁（私钥有口令时需要）
   add      --key <公钥文件>|--github <用户名> [--name 名字]   添加成员
   remove   <名字|指纹>                     移除成员（自动更换密钥）
@@ -65,7 +65,7 @@ func runCLI(args []string) int {
 		"rekey": cmdRekey, "rotate": cmdRotate, "gc": cmdGC, "backup": cmdBackup, "restore": cmdRestore,
 		"status": cmdStatus, "members": cmdMembers, "log": cmdLog, "whoami": cmdWhoami,
 		"keygen": cmdKeygen, "doctor": cmdDoctor, "trust": cmdTrust, "hook": cmdHook, "ui": cmdUI,
-		"version": func([]string) error { fmt.Println("genc", version); return nil },
+		"version": func([]string) error { fmt.Println("git-protect", version); return nil },
 	}
 	f, ok := cmds[args[0]]
 	if !ok {
@@ -73,7 +73,7 @@ func runCLI(args []string) int {
 		return 2
 	}
 	if err := f(args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "genc:", err)
+		fmt.Fprintln(os.Stderr, "git-protect:", err)
 		return 1
 	}
 	return 0
@@ -82,7 +82,7 @@ func runCLI(args []string) int {
 // ---- helpers ----
 
 func newFlags(name string) *flag.FlagSet {
-	fs := flag.NewFlagSet("genc "+name, flag.ContinueOnError)
+	fs := flag.NewFlagSet("git-protect "+name, flag.ContinueOnError)
 	return fs
 }
 
@@ -114,15 +114,15 @@ func currentGitDir(dir string) (string, error) {
 	return d, nil
 }
 
-// gencRemotes returns remote name -> storage url for remotes using genc::.
-func gencRemotes(gitDir string) map[string]string {
+// protectRemotes returns remote name -> storage url for remotes using protect::.
+func protectRemotes(gitDir string) map[string]string {
 	out, _ := Git{Dir: gitDir, Raw: true}.Run("config", "--get-regexp", `^remote\..*\.url$`)
 	res := map[string]string{}
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Fields(line)
-		if len(f) == 2 && strings.HasPrefix(f[1], "genc::") {
+		if len(f) == 2 && strings.HasPrefix(f[1], "protect::") {
 			name := strings.TrimSuffix(strings.TrimPrefix(f[0], "remote."), ".url")
-			res[name] = strings.TrimPrefix(f[1], "genc::")
+			res[name] = strings.TrimPrefix(f[1], "protect::")
 		}
 	}
 	return res
@@ -133,14 +133,14 @@ func openCLIRepo(dir string) (*Repo, error) {
 	if err != nil {
 		return nil, err
 	}
-	remotes := gencRemotes(gitDir)
+	remotes := protectRemotes(gitDir)
 	if len(remotes) == 0 {
-		return nil, errorf("当前仓库没有 genc:: 远程地址，请先运行 genc init")
+		return nil, errorf("当前仓库没有 protect:: 远程地址，请先运行 git protect init")
 	}
 	name := "origin"
 	if _, ok := remotes[name]; !ok {
 		if len(remotes) > 1 {
-			return nil, errorf("有多个 genc 远程地址，请设置 origin")
+			return nil, errorf("有多个 git-protect 远程地址，请设置 origin")
 		}
 		for n := range remotes {
 			name = n
@@ -179,7 +179,7 @@ func resolveMember(s *Snapshot, who string) (string, error) {
 			return m.FP, nil
 		}
 	}
-	return "", errorf("找不到成员 %q（genc members 查看）", who)
+	return "", errorf("找不到成员 %q（git protect members 查看）", who)
 }
 
 func memberName(s *Snapshot, fp string) string {
@@ -250,7 +250,7 @@ func cmdInit(args []string) error {
 	if *remote == "" {
 		return errorf("请指定 --remote <地址>")
 	}
-	url := strings.TrimPrefix(*remote, "genc::")
+	url := strings.TrimPrefix(*remote, "protect::")
 	gitDir, err := currentGitDir("")
 	if err != nil {
 		return err
@@ -261,7 +261,7 @@ func cmdInit(args []string) error {
 	}
 	r.Pass = terminalPassphrase
 	if st, _ := r.loadState(); st != nil && st.RepoID != "" {
-		return errorf("此仓库已经初始化过 genc")
+		return errorf("此仓库已经初始化过 git-protect")
 	}
 	if err := r.Lock(); err != nil {
 		return err
@@ -273,9 +273,9 @@ func cmdInit(args []string) error {
 	}
 	raw := Git{Dir: gitDir, Raw: true}
 	if old, err := raw.Run("config", "--get", "remote."+*remoteName+".url"); err == nil {
-		raw.Run("remote", "set-url", *remoteName, "genc::"+url)
-		fmt.Printf("远程 %s: %s → genc::%s\n", *remoteName, old, url)
-	} else if _, err := raw.Run("remote", "add", *remoteName, "genc::"+url); err != nil {
+		raw.Run("remote", "set-url", *remoteName, "protect::"+url)
+		fmt.Printf("远程 %s: %s → protect::%s\n", *remoteName, old, url)
+	} else if _, err := raw.Run("remote", "add", *remoteName, "protect::"+url); err != nil {
 		return err
 	}
 	if w := installHook(r.local, false); w == "" {
@@ -283,7 +283,7 @@ func cmdInit(args []string) error {
 	}
 	fmt.Printf("已初始化加密仓库。你的指纹：%s\n", me.FP())
 	fmt.Println("下一步：git push -u " + *remoteName + " --all")
-	fmt.Println("重要：请立即运行 genc backup 备份密钥。所有成员私钥丢失且无备份 = 代码永久无法解密。")
+	fmt.Println("重要：请立即运行 git protect backup 备份密钥。所有成员私钥丢失且无备份 = 代码永久无法解密。")
 	return nil
 }
 
@@ -294,9 +294,9 @@ func cmdClone(args []string) error {
 		return err
 	}
 	if len(pos) < 1 {
-		return errorf("用法: genc clone <地址> [目录]")
+		return errorf("用法: git protect clone <地址> [目录]")
 	}
-	url := strings.TrimPrefix(pos[0], "genc::")
+	url := strings.TrimPrefix(pos[0], "protect::")
 	dir := strings.TrimSuffix(filepath.Base(strings.TrimRight(url, "/")), ".git")
 	if len(pos) > 1 {
 		dir = pos[1]
@@ -308,7 +308,7 @@ func cmdClone(args []string) error {
 	if _, err := raw.Run("init", "-q", dir); err != nil {
 		return err
 	}
-	if _, err := raw.Run("-C", dir, "remote", "add", "origin", "genc::"+url); err != nil {
+	if _, err := raw.Run("-C", dir, "remote", "add", "origin", "protect::"+url); err != nil {
 		return err
 	}
 	r, err := openCLIRepo(dir)
@@ -392,7 +392,7 @@ func cmdAdd(args []string) error {
 		_, err := r.Admin(AdminOp{Add: &Member{FP: fp, Key: AuthorizedKey(pub)}, AddName: *name,
 			Op: "add " + fp, SignerPass: r.Pass})
 		if err == nil {
-			fmt.Println("已添加。对方现在可以 git clone genc::" + r.URL)
+			fmt.Println("已添加。对方现在可以 git clone protect::" + r.URL)
 			fmt.Println("请告诉对方核对首次连接时显示的签名人指纹。")
 		}
 		return err
@@ -407,7 +407,7 @@ func cmdRemove(args []string) error {
 		return err
 	}
 	if len(pos) != 1 {
-		return errorf("用法: genc remove <名字|指纹>")
+		return errorf("用法: git protect remove <名字|指纹>")
 	}
 	return withRepo(func(r *Repo) error {
 		s, err := r.Load()
@@ -429,7 +429,7 @@ func cmdRemove(args []string) error {
 			return err
 		}
 		fmt.Println("已移除并更换密钥。提交历史未改变。")
-		fmt.Println("重要：请同时在 GitHub 上收回他对该仓库的写权限。请运行 genc backup 备份新密钥。")
+		fmt.Println("重要：请同时在 GitHub 上收回他对该仓库的写权限。请运行 git protect backup 备份新密钥。")
 		return nil
 	})
 }
@@ -443,7 +443,7 @@ func cmdRekey(args []string) error {
 		return err
 	}
 	if len(pos) != 1 {
-		return errorf("用法: genc rekey <名字|指纹> --key <新公钥文件>")
+		return errorf("用法: git protect rekey <名字|指纹> --key <新公钥文件>")
 	}
 	key, err := readKeyArg(*keyFile, *keyText, "", 0)
 	if err != nil {
@@ -485,7 +485,7 @@ func cmdRotate(args []string) error {
 			return err
 		}
 		fmt.Println("已更换密钥。其他成员下次 pull 时会自动获取新密钥。")
-		fmt.Println("重要：请运行 genc backup 备份新密钥。")
+		fmt.Println("重要：请运行 git protect backup 备份新密钥。")
 		return nil
 	})
 }
@@ -539,7 +539,7 @@ func writeBackup(r *Repo, s *Snapshot, out string) (string, string, error) {
 		return "", "", err
 	}
 	if out == "" {
-		out = "genc-recovery-" + s.Manifest.RepoID[:8] + "-" + time.Now().Format("20060102") + ".age"
+		out = "git-protect-recovery-" + s.Manifest.RepoID[:8] + "-" + time.Now().Format("20060102") + ".age"
 	}
 	if err := writePrivateFile(out, buf.Bytes()); err != nil {
 		return "", "", err
@@ -583,7 +583,7 @@ func cmdRestore(args []string) error {
 		return err
 	}
 	if len(pos) != 1 {
-		return errorf("用法: genc restore <备份文件>（在已添加 genc:: 远程地址的仓库中运行）")
+		return errorf("用法: git protect restore <备份文件>（在已添加 protect:: 远程地址的仓库中运行）")
 	}
 	data, err := os.ReadFile(pos[0])
 	if err != nil {
@@ -652,7 +652,7 @@ func cmdRestore(args []string) error {
 		if *takeover {
 			ids := FindIdentities()
 			if len(ids) == 0 {
-				return errorf("没有找到成员私钥，请先运行 genc keygen")
+				return errorf("没有找到成员私钥，请先运行 git protect keygen")
 			}
 			me := ids[0]
 			_, err := r.Admin(AdminOp{Add: &Member{FP: me.FP(), Key: AuthorizedKey(me.Pub)}, Takeover: true,
@@ -660,7 +660,7 @@ func cmdRestore(args []string) error {
 			if err != nil {
 				return err
 			}
-			fmt.Println("已把你的私钥加为成员并更换密钥。其他成员的客户端会拒绝这次变更，需在核对你的指纹后运行 genc trust --reset。")
+			fmt.Println("已把你的私钥加为成员并更换密钥。其他成员的客户端会拒绝这次变更，需在核对你的指纹后运行 git protect trust --reset。")
 		}
 		return nil
 	})
@@ -687,7 +687,7 @@ func cmdStatus(args []string) error {
 		fmt.Printf("密钥 ID：%s（已使用 %d 天）\n", s.Manifest.KeyID, keyAgeDays(s))
 		fmt.Printf("成员：%d 人，分支/标签：%d 个，数据文件：%d 个\n", len(s.Manifest.Members), len(s.Index.Refs), len(s.Index.Packs))
 		if len(s.Index.Packs) > 200 {
-			fmt.Println("提示：数据文件较多，建议运行 genc gc")
+			fmt.Println("提示：数据文件较多，建议运行 git protect gc")
 		}
 		return nil
 	})
@@ -730,7 +730,7 @@ func cmdLog(args []string) error {
 func cmdWhoami(args []string) error {
 	ids := FindIdentities()
 	if len(ids) == 0 {
-		return errorf("没有找到成员私钥，请运行 genc keygen")
+		return errorf("没有找到成员私钥，请运行 git protect keygen")
 	}
 	for _, id := range ids {
 		lock := ""
@@ -771,7 +771,7 @@ func cmdTrust(args []string) error {
 		return err
 	}
 	if !*reset {
-		return errorf("用法: genc trust --reset")
+		return errorf("用法: git protect trust --reset")
 	}
 	return withRepo(func(r *Repo) error {
 		st, err := r.loadState()
@@ -788,27 +788,27 @@ func cmdTrust(args []string) error {
 	})
 }
 
-// cmdHook is called by the pre-push hook: genc hook pre-push <remote> <url>
+// cmdHook is called by the pre-push hook: git-protect hook pre-push <remote> <url>
 func cmdHook(args []string) error {
 	if len(args) < 3 || args[0] != "pre-push" {
 		return nil
 	}
 	url := args[2]
 	io.Copy(io.Discard, os.Stdin)
-	if strings.HasPrefix(url, "genc::") {
+	if strings.HasPrefix(url, "protect::") {
 		return nil
 	}
 	gitDir, err := currentGitDir("")
 	if err == nil {
-		allowed, _ := Git{Dir: gitDir, Raw: true}.Run("config", "--get-all", "genc.allowPlain")
+		allowed, _ := Git{Dir: gitDir, Raw: true}.Run("config", "--get-all", "protect.allowPlain")
 		for _, a := range strings.Split(allowed, "\n") {
 			if strings.TrimSpace(a) == url {
 				return nil
 			}
 		}
 	}
-	return errorf("已阻止：这是 genc 加密仓库，禁止以明文推送到 %s。\n"+
-		"  请使用 genc:: 远程地址。确需明文推送到内部地址，运行: git config --add genc.allowPlain <地址>", url)
+	return errorf("已阻止：这是 git-protect 加密仓库，禁止以明文推送到 %s。\n"+
+		"  请使用 protect:: 远程地址。确需明文推送到内部地址，运行: git config --add protect.allowPlain <地址>", url)
 }
 
 func cmdDoctor(args []string) error {
@@ -825,27 +825,27 @@ func cmdDoctor(args []string) error {
 	}
 	v, err := Git{Raw: true}.Run("--version")
 	check(err == nil, "git: "+v, "请安装 Git ≥ 2.31")
-	p, err := exec.LookPath("git-remote-genc")
-	check(err == nil, "git-remote-genc: "+p, "把 git-remote-genc 所在目录加入 PATH，然后重启 IDE")
-	g, err := exec.LookPath("genc")
-	check(err == nil, "genc: "+g, "把 genc 所在目录加入 PATH（pre-push 保护钩子需要）")
+	p, err := exec.LookPath("git-remote-protect")
+	check(err == nil, "git-remote-protect: "+p, "把 git-remote-protect 所在目录加入 PATH，然后重启 IDE")
+	g, err := exec.LookPath("git-protect")
+	check(err == nil, "git-protect: "+g, "把 git-protect 所在目录加入 PATH（pre-push 保护钩子需要）")
 	for _, extra := range bundledGits() {
 		fmt.Printf("• 发现其他 git：%s（与系统共用 PATH，可以找到 helper）\n", extra)
 	}
 	ids := FindIdentities()
-	check(len(ids) > 0, fmt.Sprintf("成员私钥：%d 把", len(ids)), "运行 genc keygen")
+	check(len(ids) > 0, fmt.Sprintf("成员私钥：%d 把", len(ids)), "运行 git protect keygen")
 	for _, id := range ids {
 		note := ""
 		if id.NeedsPassphrase() {
-			note = "（有口令：clone 时请用 genc clone，或先运行 genc unlock）"
+			note = "（有口令：clone 时请用 git protect clone，或先运行 git protect unlock）"
 		}
 		fmt.Printf("    %s  %s%s\n", id.FP(), id.Path, note)
 	}
-	if gitDir, err := currentGitDir(""); err == nil && len(gencRemotes(gitDir)) > 0 {
+	if gitDir, err := currentGitDir(""); err == nil && len(protectRemotes(gitDir)) > 0 {
 		w := installHook(Git{Dir: gitDir}, true)
 		check(w == "", "pre-push 明文推送保护钩子", w)
 		_, lfsErr := os.Stat(filepath.Join(gitDir, "lfs"))
-		check(os.IsNotExist(lfsErr), "未使用 Git LFS", "genc 不支持 LFS：LFS 文件会以明文上传")
+		check(os.IsNotExist(lfsErr), "未使用 Git LFS", "git-protect 不支持 LFS：LFS 文件会以明文上传")
 	}
 	if !ok {
 		return errorf("发现问题，请按提示处理")

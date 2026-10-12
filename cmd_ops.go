@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"genc/internal/crypt"
+	"git-protect/internal/crypt"
 )
 
 const maxAttempts = 5
@@ -230,7 +230,7 @@ func (r *Repo) tryAdmin(s *Snapshot, op AdminOp) error {
 	}
 	if op.Rekey != "" && signer != nil && op.Rekey == signer.FP() {
 		return errorf("不能用旧私钥更换自己的公钥（新清单的签名人必须是成员）。" +
-			"请让其他成员执行；或先 genc add 你的新公钥，再用新私钥 genc remove 旧公钥")
+			"请让其他成员执行；或先 git protect add 你的新公钥，再用新私钥 git protect remove 旧公钥")
 	}
 	if op.Remove != "" {
 		if signer != nil && op.Remove == signer.FP() {
@@ -390,7 +390,7 @@ func (r *Repo) tryAdmin(s *Snapshot, op AdminOp) error {
 	}
 	if op.Repack {
 		// keep the previous storage state locally as a safety net
-		r.cache.Run("update-ref", "refs/genc-backup/"+strings.ReplaceAll(nowUTC(), ":", "-"), s.Commit)
+		r.cache.Run("update-ref", "refs/protect-backup/"+strings.ReplaceAll(nowUTC(), ":", "-"), s.Commit)
 	}
 	if err := r.pushStorage(commit, s.Commit); err != nil {
 		return err
@@ -460,12 +460,12 @@ func Init(r *Repo, name string) (*Identity, error) {
 		return nil, errorf("无法访问远端 %s: %v", r.URL, err)
 	}
 	if strings.TrimSpace(refs.String()) != "" {
-		return nil, errorf("远端仓库不是空的。如果它已经是 genc 加密仓库，请使用 git clone genc::%s；"+
+		return nil, errorf("远端仓库不是空的。如果它已经是 git-protect 加密仓库，请使用 git clone protect::%s；"+
 			"否则其中可能已有明文代码，请换一个全新的空仓库（明文历史一旦公开过就已泄露，加密无法挽回）", r.URL)
 	}
 	ids := FindIdentities()
 	if len(ids) == 0 {
-		return nil, errorf("没有找到成员私钥，请先运行 genc keygen")
+		return nil, errorf("没有找到成员私钥，请先运行 git protect keygen")
 	}
 	me := ids[0]
 	if err := me.Unlock(r.Pass); err != nil {

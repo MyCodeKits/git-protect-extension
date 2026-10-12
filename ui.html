@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>genc 管理</title>
+<title>git-protect 管理</title>
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--fg:#1d2330;--muted:#667085;--line:#e3e6eb;--accent:#2f6fde;--danger:#c4372d;--ok:#1f8a4c}
 @media (prefers-color-scheme:dark){:root{--bg:#14171c;--card:#1d2128;--fg:#e6e8ec;--muted:#98a1b0;--line:#2d333c;--accent:#6b9cf5;--danger:#ef6b61;--ok:#4cc382}}
@@ -39,7 +39,7 @@ label{display:block;margin:8px 0 4px;color:var(--muted)}
 <body>
 <main>
   <div class="row" style="justify-content:space-between;align-items:flex-start">
-    <div><h1>🔒 genc 管理</h1><div class="sub" id="url">加载中…</div></div>
+    <div><h1>🔒 git-protect 管理</h1><div class="sub" id="url">加载中…</div></div>
     <button onclick="quit()">退出</button>
   </div>
 
@@ -80,7 +80,7 @@ label{display:block;margin:8px 0 4px;color:var(--muted)}
 <dialog id="addDlg">
   <h3 style="margin-top:0">添加成员</h3>
   <label>显示名</label><input id="addName" maxlength="64">
-  <label>成员公钥（对方运行 genc whoami 获得，以 ssh-ed25519 开头的一行）</label>
+  <label>成员公钥（对方运行 git protect whoami 获得，以 ssh-ed25519 开头的一行）</label>
   <textarea id="addKey"></textarea>
   <p id="addFp" class="muted"></p>
   <div class="row" style="justify-content:flex-end">
@@ -102,7 +102,7 @@ function busy(on){document.querySelectorAll("button").forEach(b=>b.disabled=on)}
 async function call(op, body={}){
   busy(true);
   try{
-    const r = await fetch("/api/"+op,{method:"POST",headers:{"Content-Type":"application/json","X-Genc-Token":TOKEN},
+    const r = await fetch("/api/"+op,{method:"POST",headers:{"Content-Type":"application/json","X-Protect-Token":TOKEN},
       body:JSON.stringify(Object.assign({passphrase:$("pass").value},body))});
     const j = await r.json();
     if(j.error){ show(j.error + (j.needPassphrase?"\n请在上方输入私钥口令后重试。":""), false); return null; }
@@ -144,7 +144,7 @@ async function addMember(){
   const r = await call("fingerprint",{key:$("addKey").value}); if(!r) return;
   if(!confirm("指纹 " + r.fp + "\n已与对方核对一致？")) return;
   const s = await call("add",{key:$("addKey").value,name:$("addName").value});
-  if(s){ addDlg.close(); render(s); show("已添加。对方现在可以 git clone genc::" + s.url, true); }
+  if(s){ addDlg.close(); render(s); show("已添加。对方现在可以 git clone protect::" + s.url, true); }
 }
 async function removeMember(fp, name){
   if(!confirm("移除 " + name + "（" + fp + "）？\n将同时更换密钥并重新加密全部数据。")) return;

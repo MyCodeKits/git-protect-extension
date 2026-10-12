@@ -1,4 +1,4 @@
-// Package crypt implements the genc encrypted file format.
+// Package crypt implements the git-protect encrypted file format.
 //
 // Layout:
 //
@@ -39,9 +39,9 @@ const (
 )
 
 var (
-	ErrFormat   = errors.New("genc: not a genc encrypted file or unsupported version")
-	ErrWrongKey = errors.New("genc: file was encrypted with a different key")
-	ErrAuth     = errors.New("genc: decryption failed: data was tampered with or truncated")
+	ErrFormat   = errors.New("git-protect: not a git-protect encrypted file or unsupported version")
+	ErrWrongKey = errors.New("git-protect: file was encrypted with a different key")
+	ErrAuth     = errors.New("git-protect: decryption failed: data was tampered with or truncated")
 )
 
 // Key is a repository master key.
@@ -211,7 +211,7 @@ func ParseKeyHex(s string) (Key, error) {
 	var k Key
 	b, err := hex.DecodeString(s)
 	if err != nil || len(b) != KeySize {
-		return k, fmt.Errorf("genc: invalid key")
+		return k, fmt.Errorf("git-protect: invalid key")
 	}
 	copy(k[:], b)
 	return k, nil

@@ -12,32 +12,32 @@ import (
 )
 
 // runHelper implements the git remote helper protocol (see `git help remote-helpers`).
-// git runs it as: git-remote-genc <remote-name> <url>
+// git runs it as: git-remote-protect <remote-name> <url>
 func runHelper(args []string) int {
 	if len(args) < 2 {
-		fmt.Fprintln(os.Stderr, "genc: git-remote-genc 应由 git 调用，例如 git clone genc::https://github.com/xxx/repo.git")
+		fmt.Fprintln(os.Stderr, "git-protect: git-remote-protect 应由 git 调用，例如 git clone protect::https://github.com/xxx/repo.git")
 		return 2
 	}
-	url := strings.TrimPrefix(args[1], "genc::")
+	url := strings.TrimPrefix(args[1], "protect::")
 	gitDir := os.Getenv("GIT_DIR")
 	if gitDir == "" {
-		fmt.Fprintln(os.Stderr, "genc: GIT_DIR not set")
+		fmt.Fprintln(os.Stderr, "git-protect: GIT_DIR not set")
 		return 2
 	}
 	r, err := OpenRepo(gitDir, url)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "genc:", err)
+		fmt.Fprintln(os.Stderr, "git-protect:", err)
 		return 1
 	}
 	if err := r.Lock(); err != nil {
-		fmt.Fprintln(os.Stderr, "genc:", err)
+		fmt.Fprintln(os.Stderr, "git-protect:", err)
 		return 1
 	}
 	defer r.Unlock()
 	h := &helper{r: r, in: bufio.NewReader(os.Stdin), out: bufio.NewWriter(os.Stdout)}
 	if err := h.loop(); err != nil {
 		h.out.Flush()
-		fmt.Fprintln(os.Stderr, "genc:", err)
+		fmt.Fprintln(os.Stderr, "git-protect:", err)
 		return 1
 	}
 	return 0
@@ -171,7 +171,7 @@ func (h *helper) loop() error {
 			}
 			fmt.Fprint(h.out, "\n")
 			if days, limit := keyAgeDays(s), rotateDays(h.r.local); days > limit {
-				h.r.info("密钥已使用 %d 天，建议更换：运行 genc rotate 或 genc ui", days)
+				h.r.info("密钥已使用 %d 天，建议更换：运行 git protect rotate 或 git protect ui", days)
 			}
 		default:
 			return fmt.Errorf("unsupported command %q", cmd[0])
@@ -182,9 +182,9 @@ func (h *helper) loop() error {
 	}
 }
 
-// rotateDays is the key age after which pushes remind to rotate (git config genc.rotateDays).
+// rotateDays is the key age after which pushes remind to rotate (git config protect.rotateDays).
 func rotateDays(local Git) int {
-	if v, err := (Git{Dir: local.Dir, Raw: true}).Run("config", "--type=int", "--get", "genc.rotateDays"); err == nil {
+	if v, err := (Git{Dir: local.Dir, Raw: true}).Run("config", "--type=int", "--get", "protect.rotateDays"); err == nil {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			return n
 		}
@@ -192,7 +192,7 @@ func rotateDays(local Git) int {
 	return 180
 }
 
-const hookMarker = "# genc-pre-push"
+const hookMarker = "# git-protect-pre-push"
 
 // installHook adds a pre-push hook that blocks plaintext pushes from an encrypted repo.
 // Returns a warning if an unrelated hook already exists.
@@ -210,15 +210,15 @@ func installHook(local Git, quiet bool) string {
 		}
 		msg := "已存在 pre-push 钩子 " + path + "，未安装明文推送保护。"
 		if strings.Contains(string(b), "git lfs") || strings.Contains(string(b), "git-lfs") {
-			msg += "检测到 Git LFS：LFS 文件会以明文上传，genc 不支持 LFS！"
+			msg += "检测到 Git LFS：LFS 文件会以明文上传，git-protect 不支持 LFS！"
 		}
 		if !quiet {
-			fmt.Fprintln(os.Stderr, "genc: 警告："+msg)
+			fmt.Fprintln(os.Stderr, "git-protect: 警告："+msg)
 		}
 		return msg
 	}
 	os.MkdirAll(hooks, 0o755)
-	script := "#!/bin/sh\n" + hookMarker + ": refuse to push this encrypted repository in plaintext\nexec genc hook pre-push \"$@\"\n"
+	script := "#!/bin/sh\n" + hookMarker + ": refuse to push this encrypted repository in plaintext\nexec git-protect hook pre-push \"$@\"\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		return "无法安装 pre-push 钩子: " + err.Error()
 	}

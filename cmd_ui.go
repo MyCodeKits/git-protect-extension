@@ -50,7 +50,7 @@ func cmdUI(args []string) error {
 	mux.HandleFunc("/api/", u.api)
 	srv := &http.Server{Handler: u.guard(mux), ReadHeaderTimeout: 10 * time.Second}
 	url := fmt.Sprintf("http://%s/?t=%s", u.host, u.token)
-	fmt.Println("genc 管理面板：" + url)
+	fmt.Println("git-protect 管理面板：" + url)
 	fmt.Println("关闭页面中的\"退出\"按钮或按 Ctrl+C 结束。")
 	if !*noOpen {
 		openBrowser(url)
@@ -114,7 +114,7 @@ type uiReq struct {
 }
 
 func (u *uiServer) api(w http.ResponseWriter, r *http.Request) {
-	if !u.tokenOK(r.Header.Get("X-Genc-Token")) || r.Method != http.MethodPost ||
+	if !u.tokenOK(r.Header.Get("X-Protect-Token")) || r.Method != http.MethodPost ||
 		!strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return

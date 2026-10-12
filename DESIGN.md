@@ -1,6 +1,7 @@
-# genc —— Git 仓库透明加密 设计文档 v0.5
+# Git Protect —— Git 仓库端到端加密扩展 设计文档 v0.6
 
 > 状态：v0.1.0 已实现　｜　日期：2026-10-12
+> 变更（相对 v0.5）：项目更名为 Git Protect，命令为 `git protect`，远程地址前缀为 `protect::`。加密文件格式标识 `GENC`、密钥派生标签 `genc/v1` 和签名命名空间 `genc-manifest@v1` 属于格式常量，保持不变以兼容已有数据。
 > 变更（相对 v0.4）：按实际实现同步；新增第 16 节"安全防护与已知局限"、第 17 节"测试"。
 > 变更（相对 v0.3）：换密钥由"删库重建"改为"同一仓库内全量重新加密 + 强制覆盖"，不删库、可全自动、只需普通推送权限。
 > 变更（相对 v0.2）：删除多版本密钥；新增签名校验；新增管理面板入口；新增技术选型、MCP 结论。
@@ -32,31 +33,31 @@
  本地（明文，普通 git 仓库）                         GitHub（只有密文）
 ┌────────────────────────────┐               ┌──────────────────────────┐
 │ IDE → git.exe              │   push: 加密   │ keys/  成员锁盒子+签名清单    │
-│ remote = genc::https://... │ ────────────▶ │ data/  加密的代码数据         │
-│ .git/genc/  密钥+缓存       │ ◀──────────── │ index.enc  加密的索引        │
+│ remote = protect::https://... │ ────────────▶ │ data/  加密的代码数据         │
+│ .git/protect/  密钥+缓存       │ ◀──────────── │ index.enc  加密的索引        │
 │   (天然不会被提交)          │   pull: 解密   │ README.md  明文说明（可选）   │
 └────────────────────────────┘               └──────────────────────────┘
 ```
 
 利用 git 官方的 **remote helper 机制**（`git help remote-helpers`）：
-- 远程地址写成 `genc::https://github.com/xxx/repo.git`。
-- git 看到 `genc::` 前缀，自动启动 PATH 中的 `git-remote-genc.exe`，通过 stdin/stdout 文本协议让它负责 fetch / push。
+- 远程地址写成 `protect::https://github.com/xxx/repo.git`。
+- git 看到 `protect::` 前缀，自动启动 PATH 中的 `git-remote-protect.exe`，通过 stdin/stdout 文本协议让它负责 fetch / push。
 - git 自带的 `git-remote-https.exe` 用的就是同一机制。
-- commit / log / diff / merge 只操作本地明文仓库，不经过 genc。
+- commit / log / diff / merge 只操作本地明文仓库，不经过 Git Protect。
 
 ---
 
 ## 3. GitHub 上的存储结构
 
 ```
-README.md                  明文：固定说明"本仓库已加密，使用 genc 访问"
+README.md                  明文：固定说明"本仓库已加密，使用 Git Protect 访问"
 keys/manifest.json         成员公钥清单（公开），见 4.4
 keys/manifest.sig          清单签名
 keys/<指纹>.key            每个成员一个锁盒子（文件名用公钥指纹，不暴露人名）
 data/<随机ID>-<序号>.enc    加密的 git 数据包，每次 push 新增一个；大包拆分，每个文件 ≤ 48MB
 index.enc                  加密的索引
 ```
-存储分支固定为 `main`，提交作者固定为 `genc <genc@localhost>`，提交说明固定为 `genc update`。提交时间是推送时间，与真实提交时间无关。
+存储分支固定为 `main`，提交作者固定为 `git-protect <git-protect@localhost>`，提交说明固定为 `git-protect update`。提交时间是推送时间，与真实提交时间无关。
 
 **index.enc 解密后内容：**
 ```json
@@ -114,7 +115,7 @@ nonce(12B) = 块序号(11B 大端) | 是否最后一块(1B)
 
 ### 4.3 密钥包裹（锁盒子 keys/*.key）
 - 格式：标准 **age** 加密文件，内容就是主密钥 K（32 字节），收件人是成员的公钥。
-- 成员密钥对由 `genc keygen` 内置生成，不依赖 SSH 程序。格式与 OpenSSH 兼容（Ed25519 推荐，RSA ≥3072 位），因此也可以复用已有的 SSH 密钥。这两种既能解锁又能签名。抗量子混合加密留到后续版本。
+- 成员密钥对由 `git protect keygen` 内置生成，不依赖 SSH 程序。格式与 OpenSSH 兼容（Ed25519 推荐，RSA ≥3072 位），因此也可以复用已有的 SSH 密钥。这两种既能解锁又能签名。抗量子混合加密留到后续版本。
 - 文件名：`SHA256(公钥)` 前 16 个十六进制字符（公钥指纹）。
 
 ### 4.4 签名清单（keys/manifest.json + manifest.sig）—— 防止"冒名换密钥"
@@ -141,16 +142,16 @@ nonce(12B) = 块序号(11B 大端) | 是否最后一块(1B)
 ## 5. 本地存储
 
 ```
-<仓库>/.git/genc/
+<仓库>/.git/protect/
   key            解锁后的主密钥 K（Windows 上用 icacls 收紧为仅当前用户可读）
   state.json     可信成员名单、repo_id、清单版本、见过的最大 seq、已导入的数据文件
-  cache/         远端存储分支的本地镜像（bare 仓库），用于增量同步；refs/genc-backup/* 保存换密钥前的旧状态
+  cache/         远端存储分支的本地镜像（bare 仓库），用于增量同步；refs/protect-backup/* 保存换密钥前的旧状态
   tmp/           临时文件（解密中的数据包），用完即删
-genc 主目录（Windows: %AppData%\genc，macOS/Linux: ~/.config/genc，可用 GENC_HOME 覆盖）
-  id_ed25519     genc keygen 生成的私钥（也会使用 ~/.ssh/id_ed25519、~/.ssh/id_rsa；GENC_IDENTITY 可指定）
+Git Protect 主目录（Windows: %AppData%\git-protect，macOS/Linux: ~/.config/git-protect，可用 GIT_PROTECT_HOME 覆盖）
+  id_ed25519     git protect keygen 生成的私钥（也会使用 ~/.ssh/id_ed25519、~/.ssh/id_rsa；GIT_PROTECT_IDENTITY 可指定）
 ```
 - 密钥放在 `.git` 内，**天然不会被提交**，相当于一个被 git 忽略的本地密钥文件。
-- `genc init` 和首次 clone 时会安装 **pre-push 钩子**：阻止把这个仓库以明文推送到任何非 `genc::` 地址（见第 16 节）。
+- `git protect init` 和首次 clone 时会安装 **pre-push 钩子**：阻止把这个仓库以明文推送到任何非 `protect::` 地址（见第 16 节）。
 
 ---
 
@@ -160,7 +161,7 @@ genc 主目录（Windows: %AppData%\genc，macOS/Linux: ~/.config/genc，可用 
 1. 拉取远端存储分支到 `cache/`，解密 `index.enc`，校验密钥 ID、签名清单、`seq`。
 2. 运行 `git pack-objects`：只打包远端没有的提交 → 加密 → `data/<随机ID>.enc`。
 3. 更新 index（refs、seq+1、prev），加密写回。
-4. 在存储分支上提交（固定 bot 身份 `genc <genc@localhost>`，不暴露作者），`git push --force-with-lease`。
+4. 在存储分支上提交（固定 bot 身份 `git-protect <git-protect@localhost>`，不暴露作者），`git push --force-with-lease`。
 5. 若被拒（别人刚推过）：回到第 1 步自动重试（最多 5 次）；若是同一分支的非快进冲突，按普通 git 行为报 `fetch first`。
 
 ### 6.2 fetch / pull / clone
@@ -168,16 +169,16 @@ genc 主目录（Windows: %AppData%\genc，macOS/Linux: ~/.config/genc，可用 
 2. 解密 → `git index-pack` 导入本地 → 更新远程跟踪分支。
 
 ### 6.3 解锁（首次 clone，或换密钥之后）
-helper 依次尝试本机私钥（`GENC_IDENTITY` 指定的；否则 genc 主目录的 `id_ed25519`、`~/.ssh/id_ed25519`、`~/.ssh/id_rsa`），找到能打开的锁盒子即成功。
+helper 依次尝试本机私钥（`GIT_PROTECT_IDENTITY` 指定的；否则 Git Protect 主目录的 `id_ed25519`、`~/.ssh/id_ed25519`、`~/.ssh/id_rsa`），找到能打开的锁盒子即成功。
 - **私钥没有口令**：自动完成，IDE 中无感。
 - **私钥有口令**：IDE 调用 git 时无法弹出输入框，helper 会报错并提示：
   ```
-  genc: 需要解锁：你的私钥有口令。请在终端运行 genc unlock，或在 genc 管理面板中点击"解锁"
+  git-protect: 需要解锁：你的私钥有口令。请在终端运行 git protect unlock，或在 Git Protect 管理面板中点击"解锁"
   ```
-  首次克隆时用 `genc clone <地址>`（会在终端询问口令）。解锁一次后密钥缓存在 `.git/genc/key`，之后不再需要。
+  首次克隆时用 `git protect clone <地址>`（会在终端询问口令）。解锁一次后密钥缓存在 `.git/protect/key`，之后不再需要。
 - **不是成员**：
   ```
-  genc: 你还不是该仓库的成员。
+  git-protect: 你还不是该仓库的成员。
         你的公钥指纹：7be210c4a9d1e3f0
         请把这个指纹发给任意一位现有成员，让他添加你
   ```
@@ -189,8 +190,8 @@ helper 依次尝试本机私钥（`GENC_IDENTITY` 指定的；否则 genc 主目
 ### 7.1 新成员加入
 ```
 ① 新成员李四                  ② 任意现有成员张三                     ③ 李四
-有密钥对即可                   面板点"添加成员"，或                     git clone genc::https://...
-（没有就 genc keygen）           genc add --github lisi                 核对签名人指纹 → 自动解锁
+有密钥对即可                   面板点"添加成员"，或                     git clone protect::https://...
+（没有就 git protect keygen）           git protect add --github lisi                 核对签名人指纹 → 自动解锁
 把 GitHub 用户名或公钥给张三      ↓ 显示李四的指纹，与李四电话/当面核对
                                ↓ 生成锁盒子、重新签名清单、推送
 ```
@@ -199,14 +200,14 @@ helper 依次尝试本机私钥（`GENC_IDENTITY` 指定的；否则 genc 主目
 
 ### 7.2 移除成员
 被移除的人手里已经有主密钥，只删除他的锁盒子没有意义。因此 **移除成员 = 删除他的锁盒子 + 换密钥**（第 8 节），两步在一次操作中自动完成。
-`genc remove 李四` 或面板点"移除"即可，全程自动。
+`git protect remove 李四` 或面板点"移除"即可，全程自动。
 
 ### 7.3 成员更换密钥对
-- **由其他成员操作**：`genc rekey 李四 --key new.pub`，只重做李四的锁盒子并重新签名，数据不动。
-- **自己换自己的**：签名清单的签名人必须是清单里的成员，所以不能用旧私钥直接替换自己。做法是先 `genc add --key 新公钥`，再用新私钥 `genc remove 旧公钥`（会顺带换密钥）。
+- **由其他成员操作**：`git protect rekey 李四 --key new.pub`，只重做李四的锁盒子并重新签名，数据不动。
+- **自己换自己的**：签名清单的签名人必须是清单里的成员，所以不能用旧私钥直接替换自己。做法是先 `git protect add --key 新公钥`，再用新私钥 `git protect remove 旧公钥`（会顺带换密钥）。
 
 ### 7.4 权限
-v1 中所有成员权限相同（都能加人、删人、换密钥）。所有操作记录在 index 的 `log` 中可查（`genc log` / 面板）。
+v1 中所有成员权限相同（都能加人、删人、换密钥）。所有操作记录在 index 的 `log` 中可查（`git protect log` / 面板）。
 所有操作只需要 GitHub 的普通推送权限，**不需要管理员权限，也不需要删库权限**。
 
 ---
@@ -215,16 +216,16 @@ v1 中所有成员权限相同（都能加人、删人、换密钥）。所有�
 
 ### 8.1 关键概念：两层提交，互不影响
 ```
-第 1 层：你们的代码提交（真正的 commit）          第 2 层：GitHub 上的存储提交（genc 自动生成）
+第 1 层：你们的代码提交（真正的 commit）          第 2 层：GitHub 上的存储提交（Git Protect 自动生成）
   ┌───────────────────────────────┐              ┌──────────────────────────────┐
-  │ a1b2c3  张三  2026-03-01  修复登录 │   加密打包     │ 9f8e7d  genc bot  "update"     │
+  │ a1b2c3  张三  2026-03-01  修复登录 │   加密打包     │ 9f8e7d  Git Protect bot  "update"     │
   │ d4e5f6  李四  2026-05-20  新增导出 │ ───────────▶ │  └ data/xxx.enc（装着左边的提交）│
   │ ...                              │              │ ...                            │
   └───────────────────────────────┘              └──────────────────────────────┘
   只存在于本地（和加密包里），换密钥【完全不动】           换密钥时【整个替换掉】
 ```
 - **第 1 层不变**：commit 的 SHA、作者、提交日期、提交说明、文件内容，**一个字节都不改**。不需要 rebase，也不会改写历史。加密只是给它们套了一层"信封"，换密钥就是换一个信封。
-- **第 2 层整个替换**：GitHub 上那些 genc 生成的存储提交（作者是 genc bot，内容全是密文）会被一个全新的存储提交强制覆盖。这些提交本身没有任何意义，替换掉没有影响。
+- **第 2 层整个替换**：GitHub 上那些 Git Protect 生成的存储提交（作者是 Git Protect bot，内容全是密文）会被一个全新的存储提交强制覆盖。这些提交本身没有任何意义，替换掉没有影响。
 - 所以：所有人本地的 `git log` 换密钥前后**完全一样**，日期也不会变。
 
 ### 8.2 流程（全自动，只需普通推送权限）
@@ -243,7 +244,7 @@ v1 中所有成员权限相同（都能加人、删人、换密钥）。所有�
 
 **为什么安全：**
 - **不删库**：GitHub 仓库、Issues、设置、权限全部保留，只是存储分支的内容被替换。
-- **不丢数据**：第 ⑥ 步先在本地完整校验，通过后才推送；推送失败时远端保持原样。旧的存储提交在本地保留一份备份（`.git/genc/backup/<日期>`）。
+- **不丢数据**：第 ⑥ 步先在本地完整校验，通过后才推送；推送失败时远端保持原样。旧的存储提交在本地保留一份备份（`.git/protect/backup/<日期>`）。
 - **不丢别人的提交**：`--force-with-lease` 保证"只有远端仍是我刚才看到的状态时才覆盖"。如果期间有人推送了，覆盖会失败，工具自动把他的新提交一起重新加密后再推。因此**不需要通知团队暂停推送，也不需要加锁**。
 - **可全自动**：不需要删库权限，也不需要网页手动操作。前提是存储分支没有开启"禁止强推"保护。
 
@@ -254,33 +255,33 @@ v1 中所有成员权限相同（都能加人、删人、换密钥）。所有�
 - 如果是**旧密钥被外人窃取**，并且要求彻底清除：可以联系 GitHub Support 清理不可达对象。这是可选的人工步骤，工具会在面板上给出说明。
 
 ### 8.4 其他成员的感受
-- 下次 pull 时，helper 发现密钥 ID 变了 → 校验签名人在可信名单内 → 用本人私钥解开新锁盒子（有口令时提示运行 `genc unlock`）→ 继续正常工作。
+- 下次 pull 时，helper 发现密钥 ID 变了 → 校验签名人在可信名单内 → 用本人私钥解开新锁盒子（有口令时提示运行 `git protect unlock`）→ 继续正常工作。
 - 本地仓库、分支、提交历史都不变，IDE 中无感。
 
 ---
 
 ## 9. 备份与恢复
 
-- `genc backup`：把主密钥用一个强口令加密（age scrypt），导出为 `genc-recovery-<仓库名>.age`，同时显示口令。请**离线保存**（U 盘、保险柜、公司密码管理器）。
-- `genc restore <文件>`：在任意机器上恢复，然后可以把自己重新加为成员。
-- **所有成员私钥都丢失且没有备份 = 代码永久无法解密。** `genc init` 和每次换密钥完成后都会强制提示备份。
+- `git protect backup`：把主密钥用一个强口令加密（age scrypt），导出为 `git-protect-recovery-<仓库名>.age`，同时显示口令。请**离线保存**（U 盘、保险柜、公司密码管理器）。
+- `git protect restore <文件>`：在任意机器上恢复，然后可以把自己重新加为成员。
+- **所有成员私钥都丢失且没有备份 = 代码永久无法解密。** `git protect init` 和每次换密钥完成后都会强制提示备份。
 
 ---
 
 ## 10. 操作入口
 
-### 10.1 ① 命令行 `genc`
+### 10.1 ① 命令行 `git-protect`
 所有功能的基础，任何平台都可以使用。所有命令支持 `--json` 输出，便于脚本或以后的 IDE 插件调用。
 
-### 10.2 ② 管理面板 `genc ui`
-- **打开方式**：在仓库目录执行 `genc ui`（或 `genc ui --repo <目录>`）；Windows 安装脚本会创建开始菜单快捷方式「genc Manager」。
-- **实现**：genc 程序内置一个本地网页，自动在默认浏览器中打开。
+### 10.2 ② 管理面板 `git protect ui`
+- **打开方式**：在仓库目录执行 `git protect ui`（或 `git protect ui --repo <目录>`）；Windows 安装脚本会创建开始菜单快捷方式「Git Protect Manager」。
+- **实现**：Git Protect 程序内置一个本地网页，自动在默认浏览器中打开。
   - 只监听 `127.0.0.1` 的随机端口；页面地址带一次性令牌；API 只接受带令牌请求头的 JSON POST，并校验 Host 头（防 DNS 重绑定），从不返回 CORS 头。其他网页和程序无法调用。
   - 私钥口令只在当次操作中使用，不保存。点"退出"或空闲 30 分钟后自动退出。
 - **v1 已实现的功能**：状态、成员列表、添加成员（显示指纹供核对）、移除成员、更换密钥、备份密钥、解锁、操作记录。多仓库下拉选择留到后续版本。
 - **界面**：
 ```
-┌─ genc 管理 ── 仓库：[ xxx/repo ▼ ] ─────────────────────┐
+┌─ Git Protect 管理 ── 仓库：[ xxx/repo ▼ ] ─────────────────────┐
 │ 状态：🔒 已加密  已解锁   密钥创建于 2026-10-12（已使用 0 天）   │
 │                                                        │
 │ 成员                                      [+ 添加成员]   │
@@ -301,11 +302,11 @@ v1 中所有成员权限相同（都能加人、删人、换密钥）。所有�
 - **移除成员**：确认后自动完成"删除锁盒子 + 更换密钥"，进度显示同上。
 
 ### 10.3 自动提醒（不需要人去找入口）
-- 密钥使用超过设定天数（默认 180 天，`git config genc.rotateDays <天数>` 可修改）后，push 时输出一行提示。只提醒，不阻止推送。
-- `genc remove` 会自动更换密钥，不需要单独提醒。
+- 密钥使用超过设定天数（默认 180 天，`git config protect.rotateDays <天数>` 可修改）后，push 时输出一行提示。只提醒，不阻止推送。
+- `git protect remove` 会自动更换密钥，不需要单独提醒。
 
 ### 10.4 ③ IDE 插件（v1 不做）
-后续版本可以考虑：VS Code / Visual Studio 状态栏显示 🔒 状态，点击打开管理面板。插件只调用 `genc --json`，不重复实现任何逻辑。
+后续版本可以考虑：VS Code / Visual Studio 状态栏显示 🔒 状态，点击打开管理面板。插件只调用 `Git Protect --json`，不重复实现任何逻辑。
 
 ---
 
@@ -314,22 +315,22 @@ v1 中所有成员权限相同（都能加人、删人、换密钥）。所有�
 ### 11.1 发布物
 一个可执行文件，复制成两个名字（程序根据自己的文件名决定行为）：
 ```
-genc.exe              管理命令和管理面板
-git-remote-genc.exe   给 git 调用的 helper
+git-protect.exe              管理命令和管理面板
+git-remote-protect.exe   给 git 调用的 helper
 ```
 平台：Windows x64/arm64、macOS x64/arm64、Linux x64/arm64（Go 交叉编译）。无其他依赖（不需要 GPG、bash、Python、.NET）。前提是已安装 Git ≥ 2.31。
 
 ### 11.2 安装方式
 | 平台 | 方式 |
 |---|---|
-| Windows | `powershell -ExecutionPolicy Bypass -File scripts\install.ps1`：安装到 `%LOCALAPPDATA%\genc`，加入用户 PATH，创建开始菜单快捷方式，**不需要管理员权限** |
+| Windows | `powershell -ExecutionPolicy Bypass -File scripts\install.ps1`：安装到 `%LOCALAPPDATA%\Git Protect`，加入用户 PATH，创建开始菜单快捷方式，**不需要管理员权限** |
 | macOS / Linux | `sh scripts/install.sh`：安装到 `~/.local/bin` |
 
 安装包（setup.exe）、winget、scoop、brew 留到正式发布时再做。
 
 ### 11.3 安装后检查
-`genc doctor`（面板中的"环境检查"）检查：
-- `git-remote-genc` 能否被 git 找到；
+`git protect doctor`（面板中的"环境检查"）检查：
+- `git-remote-protect` 能否被 git 找到；
 - 机器上**所有** git（系统 git、Visual Studio 自带的 git、SourceTree 自带的 git 等）是否都能找到它；
 - 本机成员私钥是否可用、是否有口令。
 
@@ -352,14 +353,14 @@ git-remote-genc.exe   给 git 调用的 helper
 ```bash
 # 先在 GitHub 新建一个空仓库 xxx/repo
 git init myproj && cd myproj
-genc init --remote https://github.com/xxx/repo.git   # 生成密钥、设置 origin=genc::...、提示备份
+git protect init --remote https://github.com/xxx/repo.git   # 生成密钥、设置 origin=protect::...、提示备份
 git add . && git commit -m "init"
 git push -u origin main                               # 之后一切照常
 ```
 
 **已有仓库迁移**
 ```bash
-genc init --remote https://github.com/xxx/new-repo.git
+git protect init --remote https://github.com/xxx/new-repo.git
 git push origin --all && git push origin --tags
 ```
 > ⚠️ 如果旧仓库曾经以明文公开过，那段历史已经泄露，加密无法挽回。
@@ -372,19 +373,19 @@ git push origin --all && git push origin --tags
 
 | 命令 | 作用 | 面板对应 |
 |---|---|---|
-| `genc init --remote <地址>` | 初始化加密仓库（远端必须是空仓库） | — |
-| `genc clone <地址>` | 克隆（私钥有口令时用；否则直接 `git clone genc::<地址>`） | — |
-| `genc add` / `genc remove` / `genc rekey` | 成员管理 | 成员列表 |
-| `genc unlock` | 用本人私钥解锁 | 解锁 |
-| `genc rotate` | 全量重新加密换密钥 | 更换密钥 |
-| `genc backup` / `genc restore` | 备份恢复 | 备份密钥 |
-| `genc members` / `genc log` / `genc status` | 查看信息 | 首页 / 操作记录 |
-| `genc doctor` | 环境检查 | 环境检查 |
-| `genc gc` | 合并小数据文件（> 200 个时自动提示） | — |
-| `genc keygen [--passphrase]` | 生成成员密钥对 | — |
-| `genc whoami` | 显示本人公钥和指纹（发给管理员） | — |
-| `genc trust --reset` | 清除本地信任记录（核对指纹后使用） | — |
-| `genc ui` | 打开管理面板 | — |
+| `git protect init --remote <地址>` | 初始化加密仓库（远端必须是空仓库） | — |
+| `git protect clone <地址>` | 克隆（私钥有口令时用；否则直接 `git clone protect::<地址>`） | — |
+| `git protect add` / `git protect remove` / `git protect rekey` | 成员管理 | 成员列表 |
+| `git protect unlock` | 用本人私钥解锁 | 解锁 |
+| `git protect rotate` | 全量重新加密换密钥 | 更换密钥 |
+| `git protect backup` / `git protect restore` | 备份恢复 | 备份密钥 |
+| `git protect members` / `git protect log` / `git protect status` | 查看信息 | 首页 / 操作记录 |
+| `git protect doctor` | 环境检查 | 环境检查 |
+| `git protect gc` | 合并小数据文件（> 200 个时自动提示） | — |
+| `git protect keygen [--passphrase]` | 生成成员密钥对 | — |
+| `git protect whoami` | 显示本人公钥和指纹（发给管理员） | — |
+| `git protect trust --reset` | 清除本地信任记录（核对指纹后使用） | — |
+| `git protect ui` | 打开管理面板 | — |
 
 ---
 
@@ -402,7 +403,7 @@ git push origin --all && git push origin --tags
 | 先例 | git-lfs、gh、age 都是 Go 写的、被 git 调用的命令行工具 | — | — |
 | 开发效率 | 高 | 高 | 低 |
 
-**结论：Go。** C# 唯一的优势是以后做 Visual Studio 插件时语言统一。但插件只负责调用 `genc --json`，用什么语言写都可以，不影响核心选型。C++ 在这个项目里没有优势，反而有内存安全风险。
+**结论：Go。** C# 唯一的优势是以后做 Visual Studio 插件时语言统一。但插件只负责调用 `Git Protect --json`，用什么语言写都可以，不影响核心选型。C++ 在这个项目里没有优势，反而有内存安全风险。
 
 ### 14.2 依赖
 | 用途 | 库 |
@@ -419,12 +420,12 @@ git push origin --all && git push origin --tags
 
 **不需要的原因：**
 1. **AI 编程工具本来就能直接用**：本地是普通明文 git 仓库，Claude Code、Copilot 等读代码、执行 git 命令都和平时一样，不需要任何适配。
-2. **需要查状态时有命令行**：AI 可以直接运行 `genc status --json`，效果和 MCP 一样。
+2. **需要查状态时有命令行**：AI 可以直接运行 `git protect status --json`，效果和 MCP 一样。
 3. **把密钥管理暴露给 AI 有安全风险**：一旦提示词注入让 AI 去执行"导出备份""添加成员""更换密钥"，后果很严重，这些操作必须由人来做。
 
 **以后如果要做**：只提供只读功能（状态、成员列表、环境检查），永远不提供导出、加人、删人、换密钥这些操作。
 
-> 提醒：使用云端 AI 编程工具时，代码会以明文发送给 AI 服务商，这一点不在 genc 的保护范围内，请按公司政策决定哪些仓库允许使用。
+> 提醒：使用云端 AI 编程工具时，代码会以明文发送给 AI 服务商，这一点不在 Git Protect 的保护范围内，请按公司政策决定哪些仓库允许使用。
 
 ---
 
@@ -434,8 +435,8 @@ git push origin --all && git push origin --tags
 | 风险 | 防护 | 测试 |
 |---|---|---|
 | 远端出现明文（代码、文件名、提交信息、作者、分支名、标签名） | 远端只有密文 + 固定 bot 身份的存储提交；存储提交关闭 GPG 签名、不运行 hook | 每个阶段扫描远端**全部对象**（含不可达对象），检查标记字符串 |
-| 不小心明文推送（`git push https://...`） | pre-push 钩子拒绝任何非 `genc::` 地址；钩子找不到 genc 时也会失败（默认拒绝） | ✔ |
-| 把已有明文的仓库当作加密远端 | `genc init` 要求远端是空仓库 | ✔ |
+| 不小心明文推送（`git push https://...`） | pre-push 钩子拒绝任何非 `protect::` 地址；钩子找不到 Git Protect 时也会失败（默认拒绝） | ✔ |
+| 把已有明文的仓库当作加密远端 | `git protect init` 要求远端是空仓库 | ✔ |
 | 非成员 clone | 没有锁盒子，无法解锁 | ✔ |
 | 篡改密文 / 截断 / 交换数据块 / 交换文件 | 分块 AEAD + 结束标记 + 文件头与上下文参与密钥派生 | ✔ |
 | 回滚到旧状态 | 清单版本号、索引 seq 只增不减 | ✔ |
@@ -448,11 +449,11 @@ git push origin --all && git push origin --tags
 | 浅克隆推送导致远端数据不完整 | 拒绝推送 | — |
 
 ### 16.2 已知局限（用户需要知道）
-1. **`git push --no-verify` 会绕过 pre-push 钩子**，明文推送到非 genc 地址。钩子只是防止误操作的安全网，不是强制保障。
+1. **`git push --no-verify` 会绕过 pre-push 钩子**，明文推送到非 Git Protect 地址。钩子只是防止误操作的安全网，不是强制保障。
 2. **首次 clone 时信任第一次看到的签名人**（首次使用信任）。新成员必须与邀请人核对显示的签名人指纹。
 3. **移除成员后必须同时收回他在 GitHub 上的写权限。** 否则在其他成员 fetch 到"移除"之前，他可以用自己的私钥签一份假清单，这些成员会接受。
 4. **成员身份可被推断**：公开清单里有成员的公钥。拿到某人公钥（例如 `github.com/<用户>.keys`）的人可以判断他是不是成员。人名不会泄露。
-5. **不支持 Git LFS**：LFS 文件会绕过 genc 以明文上传。`genc doctor` 和钩子安装时会检测并警告。
+5. **不支持 Git LFS**：LFS 文件会绕过 Git Protect 以明文上传。`git protect doctor` 和钩子安装时会检测并警告。
 6. 远端可见的信息：仓库大小、push 时间、成员数量。
 7. 密钥全部丢失且没有备份 = 代码永久无法解密。
 
@@ -463,16 +464,16 @@ git push origin --all && git push origin --tags
 测试统一放在 `test/` 目录：
 ```
 test/unit/   加密格式（往返、篡改、截断、重排、上下文绑定）、清单签名（含与 OpenSSH ssh-keygen -Y verify 互通）
-test/e2e/    编译真实的 genc / git-remote-genc，用真实 git 在多个用户之间跑完整流程
+test/e2e/    编译真实的 Git Protect / git-remote-protect，用真实 git 在多个用户之间跑完整流程
 ```
 - e2e 覆盖：init、push/clone/pull、非快进拒绝与合并、并发推送、删除分支、标签、加人、移除（旧密钥失效）、换密钥（提交 SHA/日期/说明不变）、gc、备份恢复（含错误口令）、口令保护的私钥、管理面板的全部操作和请求防护、rekey、trust reset，以及第 16.1 节的全部攻击模拟。
 - 运行：`go test ./test/...`
 - 覆盖率（统计真实二进制）：
   ```
-  GENC_COVERDIR=<目录> go test ./test/e2e/
+  GIT_PROTECT_COVERDIR=<目录> go test ./test/e2e/
   go tool covdata percent -i=<目录>
   ```
-  当前语句覆盖率约 73%。未覆盖的主要是需要真实终端交互的代码（口令输入、`[y/N]` 确认、`genc clone`/`genc unlock`）和网络错误分支。
+  当前语句覆盖率约 73%。未覆盖的主要是需要真实终端交互的代码（口令输入、`[y/N]` 确认、`git protect clone`/`git protect unlock`）和网络错误分支。
 - 真实远端验证：已在内部 Gitea（`git-protect-test` 仓库）上完成 init、推送、第二成员 clone/推送、换密钥、移除成员、明文推送拦截，并以外部视角 mirror 克隆扫描，确认没有明文。
 
 ---

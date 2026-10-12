@@ -12,7 +12,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	. "genc/internal/sshsig"
+	. "git-protect/internal/sshsig"
 )
 
 func signers(t *testing.T) []ssh.Signer {
@@ -60,14 +60,14 @@ func TestOpenSSHInterop(t *testing.T) {
 		t.Skip("ssh-keygen not found")
 	}
 	s := signers(t)[0]
-	msg := []byte("hello genc\n")
-	sig, _ := Sign(s, "genc-test", msg)
+	msg := []byte("hello git-protect\n")
+	sig, _ := Sign(s, "git-protect-test", msg)
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "msg"), msg, 0o600)
 	os.WriteFile(filepath.Join(dir, "msg.sig"), sig, 0o600)
 	allowed := "tester " + strings.TrimSpace(string(ssh.MarshalAuthorizedKey(s.PublicKey()))) + "\n"
 	os.WriteFile(filepath.Join(dir, "allowed"), []byte(allowed), 0o600)
-	c := exec.Command("ssh-keygen", "-Y", "verify", "-f", filepath.Join(dir, "allowed"), "-I", "tester", "-n", "genc-test", "-s", filepath.Join(dir, "msg.sig"))
+	c := exec.Command("ssh-keygen", "-Y", "verify", "-f", filepath.Join(dir, "allowed"), "-I", "tester", "-n", "git-protect-test", "-s", filepath.Join(dir, "msg.sig"))
 	in, _ := os.Open(filepath.Join(dir, "msg"))
 	defer in.Close()
 	c.Stdin = in

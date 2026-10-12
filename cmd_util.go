@@ -76,7 +76,7 @@ func acquireLock(dir string) (*fileLock, error) {
 			continue
 		}
 		if time.Now().After(deadline) {
-			return nil, errorf("另一个 genc 进程正在操作此仓库（锁文件 %s）", path)
+			return nil, errorf("另一个 git-protect 进程正在操作此仓库（锁文件 %s）", path)
 		}
 		time.Sleep(150 * time.Millisecond)
 	}

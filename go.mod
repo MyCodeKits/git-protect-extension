@@ -1,4 +1,4 @@
-module genc
+module git-protect
 
 go 1.24
 

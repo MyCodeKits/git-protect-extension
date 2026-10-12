@@ -17,7 +17,7 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// panel is a running `genc ui` process.
+// panel is a running `git protect ui` process.
 type panel struct {
 	t     *testing.T
 	base  string // http://127.0.0.1:port
@@ -25,7 +25,7 @@ type panel struct {
 }
 
 func startPanel(t *testing.T, u *user, repo string) *panel {
-	c := u.cmd(repo, "genc", "ui", "--no-browser")
+	c := u.cmd(repo, "git-protect", "ui", "--no-browser")
 	stdout, _ := c.StdoutPipe()
 	c.Stderr = os.Stderr
 	if err := c.Start(); err != nil {
@@ -74,7 +74,7 @@ func (p *panel) raw(method, path, host, token, ctype, body string) int {
 		req.Host = host
 	}
 	if token != "" {
-		req.Header.Set("X-Genc-Token", token)
+		req.Header.Set("X-Protect-Token", token)
 	}
 	if ctype != "" {
 		req.Header.Set("Content-Type", ctype)
@@ -95,7 +95,7 @@ func (p *panel) raw(method, path, host, token, ctype, body string) int {
 func (p *panel) call(op string, req map[string]string) (map[string]any, string) {
 	body, _ := json.Marshal(req)
 	r, _ := http.NewRequest("POST", p.base+"/api/"+op, bytes.NewReader(body))
-	r.Header.Set("X-Genc-Token", p.token)
+	r.Header.Set("X-Protect-Token", p.token)
 	r.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(r)
 	if err != nil {
@@ -126,7 +126,7 @@ func TestPanelGuard(t *testing.T) {
 	alice := e.user("alice")
 	wa := filepath.Join(e.root, "wa")
 	alice.ok(e.root, "git", "init", "-q", wa)
-	alice.ok(wa, "genc", "init", "--remote", e.remote)
+	alice.ok(wa, "git-protect", "init", "--remote", e.remote)
 	p := startPanel(t, alice, wa)
 	host := strings.TrimPrefix(p.base, "http://")
 	cases := []struct {
@@ -154,24 +154,24 @@ func TestPanelGuard(t *testing.T) {
 func TestPassphraseKeysAndPanelAdmin(t *testing.T) {
 	e := newEnv(t)
 	alice := e.user("alice")
-	url := "genc::" + e.remote
+	url := "protect::" + e.remote
 
 	wa := filepath.Join(e.root, "wa")
 	alice.ok(e.root, "git", "init", "-q", wa)
 	write(t, filepath.Join(wa, "f.txt"), "SECRET_CONTENT_7f3a\n")
 	alice.ok(wa, "git", "add", ".")
 	alice.ok(wa, "git", "commit", "-q", "-m", "SECRET_MSG_91c2")
-	alice.ok(wa, "genc", "init", "--remote", e.remote, "--name", "alice")
+	alice.ok(wa, "git-protect", "init", "--remote", e.remote, "--name", "alice")
 	alice.ok(wa, "git", "push", "-q", "-u", "origin", "main")
 
 	// erin's private key is protected by a passphrase
 	erin := e.newUser("erin")
 	writeProtectedKey(t, erin.keyPath(), "erin-pass")
-	if !strings.Contains(erin.ok(e.root, "genc", "whoami"), "有口令") {
+	if !strings.Contains(erin.ok(e.root, "git-protect", "whoami"), "有口令") {
 		t.Fatal("whoami should report the passphrase")
 	}
-	alice.ok(wa, "genc", "add", "--key", erin.pub(), "--name", "erin", "--yes")
-	alice.fail(wa, "已经是成员", "genc", "add", "--key", erin.pub(), "--yes")
+	alice.ok(wa, "git-protect", "add", "--key", erin.pub(), "--name", "erin", "--yes")
+	alice.fail(wa, "已经是成员", "git-protect", "add", "--key", erin.pub(), "--yes")
 
 	// inside the git helper no prompt is possible: a clear message, never a hang
 	erin.fail(e.root, "需要解锁", "git", "clone", "-q", url, filepath.Join(e.root, "we-fail"))
@@ -219,7 +219,7 @@ func TestPassphraseKeysAndPanelAdmin(t *testing.T) {
 	p.must("quit", nil)
 
 	// operation log, rekey, trust reset, doctor, status
-	log := alice.ok(wa, "genc", "log")
+	log := alice.ok(wa, "git-protect", "log")
 	for _, op := range []string{"init", "add", "rotate", "remove"} {
 		if !strings.Contains(log, op) {
 			t.Fatalf("log missing %q:\n%s", op, log)
@@ -227,24 +227,24 @@ func TestPassphraseKeysAndPanelAdmin(t *testing.T) {
 	}
 	// changing your own key: rekey by yourself is refused; add the new key, then remove the old one
 	alice2 := e.user("alice2")
-	alice.fail(wa, "不能用旧私钥更换自己的公钥", "genc", "rekey", "alice", "--key", alice2.pub())
-	alice.ok(wa, "genc", "add", "--key", alice2.pub(), "--name", "alice-new", "--yes")
-	alice2.ok(wa, "genc", "remove", "alice", "--yes")
+	alice.fail(wa, "不能用旧私钥更换自己的公钥", "git-protect", "rekey", "alice", "--key", alice2.pub())
+	alice.ok(wa, "git-protect", "add", "--key", alice2.pub(), "--name", "alice-new", "--yes")
+	alice2.ok(wa, "git-protect", "remove", "alice", "--yes")
 	alice2.ok(e.root, "git", "clone", "-q", url, filepath.Join(e.root, "wa2"))
 	alice.fail(e.root, "不是该仓库的成员", "git", "clone", "-q", url, filepath.Join(e.root, "wa-old"))
 	// rekey of another member
 	gina := e.user("gina")
 	gina2 := e.user("gina2")
-	alice2.ok(wa, "genc", "add", "--key", gina.pub(), "--name", "gina", "--yes")
-	alice2.ok(wa, "genc", "rekey", "gina", "--key", gina2.pub())
+	alice2.ok(wa, "git-protect", "add", "--key", gina.pub(), "--name", "gina", "--yes")
+	alice2.ok(wa, "git-protect", "rekey", "gina", "--key", gina2.pub())
 	gina2.ok(e.root, "git", "clone", "-q", url, filepath.Join(e.root, "wg"))
 	gina.fail(e.root, "不是该仓库的成员", "git", "clone", "-q", url, filepath.Join(e.root, "wg-old"))
 
-	if out := alice2.ok(wa, "genc", "trust", "--reset"); !strings.Contains(out, "已清除") {
+	if out := alice2.ok(wa, "git-protect", "trust", "--reset"); !strings.Contains(out, "已清除") {
 		t.Fatal(out)
 	}
 	alice2.ok(wa, "git", "fetch", "-q") // trust on first use again, unlock with the new key
-	alice2.run(wa, "genc", "doctor")
-	alice2.ok(wa, "genc", "status")
+	alice2.run(wa, "git-protect", "doctor")
+	alice2.ok(wa, "git-protect", "status")
 	e.assertNoLeak("admin")
 }

@@ -18,8 +18,8 @@ import (
 	"filippo.io/age"
 	"golang.org/x/crypto/ssh"
 
-	"genc/internal/crypt"
-	"genc/internal/sshsig"
+	"git-protect/internal/crypt"
+	"git-protect/internal/sshsig"
 )
 
 var errorf = fmt.Errorf
@@ -33,7 +33,7 @@ const (
 	pathReadme     = "README.md"
 	partSize       = 48 << 20 // keep each stored file well under GitHub's 100MB limit
 	maxPackParts   = 4096
-	readmeContents = "# Encrypted repository\n\nThis repository is encrypted with genc.\nIts contents are only readable by members who hold a key.\n\n    git clone genc::<this repository url>\n"
+	readmeContents = "# Encrypted repository\n\nThis repository is encrypted with git-protect.\nIts contents are only readable by members who hold a key.\n\n    git clone protect::<this repository url>\n"
 )
 
 type Member struct {
@@ -117,7 +117,7 @@ type Repo struct {
 }
 
 var (
-	errNotInitialized = errors.New("远端不是 genc 加密仓库（没有找到存储分支），请先运行 genc init")
+	errNotInitialized = errors.New("远端不是 git-protect 加密仓库（没有找到存储分支），请先运行 git protect init")
 	errConflict       = errors.New("remote storage changed concurrently")
 )
 
@@ -126,10 +126,10 @@ func OpenRepo(gitDir, url string) (*Repo, error) {
 	if err != nil {
 		return nil, err
 	}
-	if strings.HasPrefix(url, "genc::") {
-		return nil, errorf("非法的远程地址（重复的 genc:: 前缀）")
+	if strings.HasPrefix(url, "protect::") {
+		return nil, errorf("非法的远程地址（重复的 protect:: 前缀）")
 	}
-	r := &Repo{GitDir: gitDir, URL: url, dir: filepath.Join(gitDir, "genc"), Pass: nonInteractive}
+	r := &Repo{GitDir: gitDir, URL: url, dir: filepath.Join(gitDir, "protect"), Pass: nonInteractive}
 	r.local = Git{Dir: gitDir}
 	r.cache = Git{Dir: filepath.Join(r.dir, "cache")}
 	if err := os.MkdirAll(filepath.Join(r.dir, "tmp"), 0o700); err != nil {
@@ -151,7 +151,7 @@ func (r *Repo) Unlock() { r.lock.Release(); r.lock = nil }
 
 func (r *Repo) info(format string, a ...any) {
 	if !r.Quiet {
-		fmt.Fprintf(os.Stderr, "genc: "+format+"\n", a...)
+		fmt.Fprintf(os.Stderr, "git-protect: "+format+"\n", a...)
 	}
 }
 
@@ -341,7 +341,7 @@ func (r *Repo) checkTrust(st *LocalState, m *Manifest, raw []byte) error {
 	}
 	switch {
 	case m.RepoID != st.RepoID:
-		return errorf("安全警告：远端仓库 ID 已改变（可能被替换）。如确认无误，运行 genc trust --reset")
+		return errorf("安全警告：远端仓库 ID 已改变（可能被替换）。如确认无误，运行 git protect trust --reset")
 	case m.Version < st.ManifestVersion:
 		return errorf("安全警告：远端签名清单版本回退（%d < %d），可能是回滚攻击", m.Version, st.ManifestVersion)
 	case m.Version == st.ManifestVersion && h != st.ManifestHash:
@@ -349,7 +349,7 @@ func (r *Repo) checkTrust(st *LocalState, m *Manifest, raw []byte) error {
 	case m.Version > st.ManifestVersion:
 		signerKey, _ := m.member(m.Signer)
 		if !sameMember(st.Members, m.Signer, AuthorizedKey(signerKey)) {
-			return errorf("安全警告：签名清单由不受信任的密钥 %s 签署，已拒绝。如确认无误，运行 genc trust --reset", m.Signer)
+			return errorf("安全警告：签名清单由不受信任的密钥 %s 签署，已拒绝。如确认无误，运行 git protect trust --reset", m.Signer)
 		}
 	}
 	return nil
@@ -397,12 +397,12 @@ func (r *Repo) unlockKey(tree map[string]string, m *Manifest) (crypt.Key, error)
 		return k, nil
 	}
 	if needPass {
-		return crypt.Key{}, errorf("需要解锁：你的私钥有口令。请在终端运行 genc unlock，或在 genc 管理面板中点击\"解锁\"")
+		return crypt.Key{}, errorf("需要解锁：你的私钥有口令。请在终端运行 git protect unlock，或在 git-protect 管理面板中点击\"解锁\"")
 	}
 	if len(fps) == 0 {
-		return crypt.Key{}, errorf("没有找到你的成员私钥。请运行 genc keygen 生成，然后把公钥发给现有成员")
+		return crypt.Key{}, errorf("没有找到你的成员私钥。请运行 git protect keygen 生成，然后把公钥发给现有成员")
 	}
-	return crypt.Key{}, errorf("你还不是该仓库的成员。你的公钥指纹：%s。请把指纹和公钥（genc whoami）发给现有成员，让他运行 genc add", strings.Join(fps, ", "))
+	return crypt.Key{}, errorf("你还不是该仓库的成员。你的公钥指纹：%s。请把指纹和公钥（git protect whoami）发给现有成员，让他运行 git protect add", strings.Join(fps, ", "))
 }
 
 func validateIndex(idx *Index, m *Manifest, tree map[string]string) error {
@@ -726,14 +726,14 @@ func (r *Repo) commitTree(entries map[string]string, parent string) (string, err
 	if err != nil {
 		return "", err
 	}
-	args := []string{"commit-tree", "--no-gpg-sign", tree, "-m", "genc update"}
+	args := []string{"commit-tree", "--no-gpg-sign", tree, "-m", "git-protect update"}
 	if parent != "" {
 		args = append(args, "-p", parent)
 	}
 	// a fixed identity so the public storage history reveals nothing about authors
 	bot := Git{Dir: r.cache.Dir, Env: []string{
-		"GIT_AUTHOR_NAME=genc", "GIT_AUTHOR_EMAIL=genc@localhost",
-		"GIT_COMMITTER_NAME=genc", "GIT_COMMITTER_EMAIL=genc@localhost",
+		"GIT_AUTHOR_NAME=git-protect", "GIT_AUTHOR_EMAIL=git-protect@localhost",
+		"GIT_COMMITTER_NAME=git-protect", "GIT_COMMITTER_EMAIL=git-protect@localhost",
 	}}
 	return bot.Run(args...)
 }

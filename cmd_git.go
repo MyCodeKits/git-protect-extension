@@ -57,7 +57,7 @@ func (g Git) cmd(o gitOpts, args ...string) *exec.Cmd {
 	if !g.Raw {
 		full = []string{
 			// never run user hooks or sign anything in our storage repositories
-			"-c", "core.hooksPath=" + filepath.Join(os.TempDir(), "genc-no-hooks-dir"),
+			"-c", "core.hooksPath=" + filepath.Join(os.TempDir(), "git-protect-no-hooks"),
 			"-c", "commit.gpgSign=false", "-c", "tag.gpgSign=false", "-c", "push.gpgSign=false",
 		}
 	}

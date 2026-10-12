@@ -11,13 +11,13 @@ import (
 	"sync"
 	"testing"
 
-	"genc/internal/crypt"
+	"git-protect/internal/crypt"
 )
 
 func TestCollaborationAndAttacks(t *testing.T) {
 	e := newEnv(t)
 	alice, bob, carol := e.user("alice"), e.user("bob"), e.user("carol")
-	url := "genc::" + e.remote
+	url := "protect::" + e.remote
 
 	// ---- alice creates a repository with secrets and initializes encryption
 	wa := filepath.Join(e.root, "wa")
@@ -31,7 +31,7 @@ func TestCollaborationAndAttacks(t *testing.T) {
 	alice.ok(wa, "git", "tag", "-a", "v-secret-tag", "-m", "SECRET_MSG_91c2 tag")
 	alice.ok(wa, "git", "branch", "feature/secret-branch-x")
 
-	alice.ok(wa, "genc", "init", "--remote", e.remote, "--name", "alice")
+	alice.ok(wa, "git-protect", "init", "--remote", e.remote, "--name", "alice")
 	if got := alice.ok(wa, "git", "remote", "get-url", "origin"); got != url {
 		t.Fatalf("origin = %q", got)
 	}
@@ -57,10 +57,10 @@ func TestCollaborationAndAttacks(t *testing.T) {
 	carol.ok(wp, "git", "add", ".")
 	carol.ok(wp, "git", "commit", "-q", "-m", "x")
 	carol.ok(wp, "git", "push", "-q", plain, "main")
-	carol.fail(wp, "不是空的", "genc", "init", "--remote", plain)
+	carol.fail(wp, "不是空的", "git-protect", "init", "--remote", plain)
 
 	// ---- add bob; bob clones and sees everything intact
-	alice.ok(wa, "genc", "add", "--key", bob.pub(), "--name", "bob", "--yes")
+	alice.ok(wa, "git-protect", "add", "--key", bob.pub(), "--name", "bob", "--yes")
 	wb := filepath.Join(e.root, "wb")
 	bob.ok(e.root, "git", "clone", "-q", url, wb)
 	if b, _ := os.ReadFile(filepath.Join(wb, "big.txt")); string(b) != big {
@@ -76,7 +76,7 @@ func TestCollaborationAndAttacks(t *testing.T) {
 	if got := alice.ok(wa, "git", "rev-parse", "HEAD"); got != bob.ok(wb, "git", "rev-parse", "HEAD") {
 		t.Fatal("commit ids differ between alice and bob")
 	}
-	members := alice.ok(wa, "genc", "members")
+	members := alice.ok(wa, "git-protect", "members")
 	if !strings.Contains(members, "alice") || !strings.Contains(members, "bob") {
 		t.Fatalf("members: %s", members)
 	}
@@ -134,14 +134,14 @@ func TestCollaborationAndAttacks(t *testing.T) {
 	logFmt := []string{"log", "--all", "--format=%H|%an|%ae|%ad|%cd|%s"}
 	bob.ok(wb, "git", "fetch", "-q", "--prune")
 	before := bob.ok(wb, append([]string{"git"}, logFmt...)...)
-	oldKey, _ := os.ReadFile(filepath.Join(wb, ".git", "genc", "key"))
-	alice.ok(wa, "genc", "rotate", "--yes")
+	oldKey, _ := os.ReadFile(filepath.Join(wb, ".git", "protect", "key"))
+	alice.ok(wa, "git-protect", "rotate", "--yes")
 	bob.ok(wb, "git", "fetch", "-q", "--prune")
 	after := bob.ok(wb, append([]string{"git"}, logFmt...)...)
 	if before != after {
 		t.Fatalf("history changed by rotation:\n%s\n---\n%s", before, after)
 	}
-	newKey, _ := os.ReadFile(filepath.Join(wb, ".git", "genc", "key"))
+	newKey, _ := os.ReadFile(filepath.Join(wb, ".git", "protect", "key"))
 	if bytes.Equal(oldKey, newKey) {
 		t.Fatal("bob did not receive the new key")
 	}
@@ -157,7 +157,7 @@ func TestCollaborationAndAttacks(t *testing.T) {
 
 	// ---- remove bob: he can no longer read anything new
 	staleCommit := e.remoteHead()
-	alice.ok(wa, "genc", "remove", "bob", "--yes")
+	alice.ok(wa, "git-protect", "remove", "bob", "--yes")
 	write(t, filepath.Join(wa, "after-remove.txt"), "new secret\n")
 	alice.ok(wa, "git", "add", ".")
 	alice.ok(wa, "git", "commit", "-q", "-m", "after remove")
@@ -212,7 +212,7 @@ func TestCollaborationAndAttacks(t *testing.T) {
 	alice.ok(wa, "git", "fetch", "-q")
 
 	// ---- backup and restore on a machine without alice's private key
-	out := alice.ok(wa, "genc", "backup", "--out", filepath.Join(e.root, "backup.age"))
+	out := alice.ok(wa, "git-protect", "backup", "--out", filepath.Join(e.root, "backup.age"))
 	pass := regexp.MustCompile(`恢复口令：(\S+)`).FindStringSubmatch(out)
 	if pass == nil {
 		t.Fatalf("no passphrase in output: %s", out)
@@ -221,7 +221,7 @@ func TestCollaborationAndAttacks(t *testing.T) {
 	wd := filepath.Join(e.root, "wd")
 	dave.ok(e.root, "git", "init", "-q", wd)
 	dave.ok(wd, "git", "remote", "add", "origin", url)
-	c := exec.Command("genc", "restore", filepath.Join(e.root, "backup.age"), "--passphrase-stdin")
+	c := exec.Command("git-protect", "restore", filepath.Join(e.root, "backup.age"), "--passphrase-stdin")
 	c.Dir, c.Env, c.Stdin = wd, append(os.Environ(), dave.vars...), strings.NewReader(pass[1]+"\n")
 	if o, err := c.CombinedOutput(); err != nil {
 		t.Fatalf("restore: %v\n%s", err, o)
@@ -231,7 +231,7 @@ func TestCollaborationAndAttacks(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(wd, "after-remove.txt")); err != nil {
 		t.Fatal("restore did not give access")
 	}
-	wrong := exec.Command("genc", "restore", filepath.Join(e.root, "backup.age"), "--passphrase-stdin")
+	wrong := exec.Command("git-protect", "restore", filepath.Join(e.root, "backup.age"), "--passphrase-stdin")
 	wrong.Dir, wrong.Env, wrong.Stdin = wd, append(os.Environ(), dave.vars...), strings.NewReader("WRONG-PASS\n")
 	if o, err := wrong.CombinedOutput(); err == nil {
 		t.Fatalf("wrong passphrase accepted: %s", o)
@@ -244,8 +244,8 @@ func TestCollaborationAndAttacks(t *testing.T) {
 		alice.ok(wa, "git", "commit", "-q", "-m", "n")
 		alice.ok(wa, "git", "push", "-q")
 	}
-	alice.ok(wa, "genc", "gc")
-	if st := alice.ok(wa, "genc", "status"); !strings.Contains(st, "数据文件：1 个") {
+	alice.ok(wa, "git-protect", "gc")
+	if st := alice.ok(wa, "git-protect", "status"); !strings.Contains(st, "数据文件：1 个") {
 		t.Fatalf("gc did not merge packs: %s", st)
 	}
 	wa3 := filepath.Join(e.root, "wa3")

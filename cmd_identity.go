@@ -66,24 +66,24 @@ func AuthorizedKey(pub ssh.PublicKey) string {
 	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pub)))
 }
 
-func gencHome() string {
-	if h := os.Getenv("GENC_HOME"); h != "" {
+func protectHome() string {
+	if h := os.Getenv("GIT_PROTECT_HOME"); h != "" {
 		return h
 	}
 	d, err := os.UserConfigDir()
 	if err != nil {
 		d = os.TempDir()
 	}
-	return filepath.Join(d, "genc")
+	return filepath.Join(d, "git-protect")
 }
 
 // identityPaths lists candidate private keys, most specific first.
 func identityPaths() []string {
 	var paths []string
-	if p := os.Getenv("GENC_IDENTITY"); p != "" {
+	if p := os.Getenv("GIT_PROTECT_IDENTITY"); p != "" {
 		return []string{p} // explicit choice: use only this key
 	}
-	paths = append(paths, filepath.Join(gencHome(), "id_ed25519"))
+	paths = append(paths, filepath.Join(protectHome(), "id_ed25519"))
 	if home, err := os.UserHomeDir(); err == nil {
 		paths = append(paths, filepath.Join(home, ".ssh", "id_ed25519"), filepath.Join(home, ".ssh", "id_rsa"))
 	}
@@ -208,9 +208,9 @@ func ageRecipient(pub ssh.PublicKey) (age.Recipient, error) {
 	return agessh.ParseRecipient(AuthorizedKey(pub))
 }
 
-// GenerateIdentity creates a new ed25519 key pair in the genc home directory.
+// GenerateIdentity creates a new ed25519 key pair in the git-protect home directory.
 func GenerateIdentity(passphrase []byte) (string, error) {
-	dir := gencHome()
+	dir := protectHome()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
@@ -224,9 +224,9 @@ func GenerateIdentity(passphrase []byte) (string, error) {
 	}
 	var block any
 	if len(passphrase) > 0 {
-		block, err = ssh.MarshalPrivateKeyWithPassphrase(priv, "genc", passphrase)
+		block, err = ssh.MarshalPrivateKeyWithPassphrase(priv, "git-protect", passphrase)
 	} else {
-		block, err = ssh.MarshalPrivateKey(priv, "genc")
+		block, err = ssh.MarshalPrivateKey(priv, "git-protect")
 	}
 	if err != nil {
 		return "", err
