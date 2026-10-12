@@ -400,7 +400,7 @@ func (r *Repo) unlockKey(tree map[string]string, m *Manifest) (crypt.Key, error)
 		return crypt.Key{}, errorf("需要解锁：你的私钥有口令。请在终端运行 genc unlock，或在 genc 管理面板中点击\"解锁\"")
 	}
 	if len(fps) == 0 {
-		return crypt.Key{}, errorf("没有找到你的 SSH 私钥。请运行 genc keygen 生成，然后把公钥发给现有成员")
+		return crypt.Key{}, errorf("没有找到你的成员私钥。请运行 genc keygen 生成，然后把公钥发给现有成员")
 	}
 	return crypt.Key{}, errorf("你还不是该仓库的成员。你的公钥指纹：%s。请把指纹和公钥（genc whoami）发给现有成员，让他运行 genc add", strings.Join(fps, ", "))
 }

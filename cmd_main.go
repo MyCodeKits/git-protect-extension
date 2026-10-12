@@ -42,13 +42,13 @@ const usage = `genc ` + version + ` —— Git 仓库透明加密
   unlock                                  用本人私钥解锁（私钥有口令时需要）
   add      --key <公钥文件>|--github <用户名> [--name 名字]   添加成员
   remove   <名字|指纹>                     移除成员（自动更换密钥）
-  rekey    <名字|指纹> --key <新公钥文件>    更换某成员的 SSH 公钥
+  rekey    <名字|指纹> --key <新公钥文件>    更换某成员的公钥
   rotate                                  更换密钥（全量重新加密，提交历史不变）
   gc                                      合并数据文件
   backup   [--out 文件]                    导出密钥备份
   restore  <备份文件> [--takeover]          从备份恢复密钥
   status | members | log | whoami          查看信息
-  keygen   [--passphrase]                 生成 SSH 密钥
+  keygen   [--passphrase]                 生成成员密钥对
   doctor                                  环境检查
   trust    --reset                        清除本地信任记录（核对指纹后使用）
   ui                                      打开管理面板
@@ -652,7 +652,7 @@ func cmdRestore(args []string) error {
 		if *takeover {
 			ids := FindIdentities()
 			if len(ids) == 0 {
-				return errorf("没有找到 SSH 私钥，请先运行 genc keygen")
+				return errorf("没有找到成员私钥，请先运行 genc keygen")
 			}
 			me := ids[0]
 			_, err := r.Admin(AdminOp{Add: &Member{FP: me.FP(), Key: AuthorizedKey(me.Pub)}, Takeover: true,
@@ -730,7 +730,7 @@ func cmdLog(args []string) error {
 func cmdWhoami(args []string) error {
 	ids := FindIdentities()
 	if len(ids) == 0 {
-		return errorf("没有找到 SSH 私钥，请运行 genc keygen")
+		return errorf("没有找到成员私钥，请运行 genc keygen")
 	}
 	for _, id := range ids {
 		lock := ""
@@ -833,7 +833,7 @@ func cmdDoctor(args []string) error {
 		fmt.Printf("• 发现其他 git：%s（与系统共用 PATH，可以找到 helper）\n", extra)
 	}
 	ids := FindIdentities()
-	check(len(ids) > 0, fmt.Sprintf("SSH 私钥：%d 把", len(ids)), "运行 genc keygen")
+	check(len(ids) > 0, fmt.Sprintf("成员私钥：%d 把", len(ids)), "运行 genc keygen")
 	for _, id := range ids {
 		note := ""
 		if id.NeedsPassphrase() {

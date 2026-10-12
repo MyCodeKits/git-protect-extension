@@ -465,7 +465,7 @@ func Init(r *Repo, name string) (*Identity, error) {
 	}
 	ids := FindIdentities()
 	if len(ids) == 0 {
-		return nil, errorf("没有找到 SSH 私钥，请先运行 genc keygen")
+		return nil, errorf("没有找到成员私钥，请先运行 genc keygen")
 	}
 	me := ids[0]
 	if err := me.Unlock(r.Pass); err != nil {

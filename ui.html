@@ -80,7 +80,7 @@ label{display:block;margin:8px 0 4px;color:var(--muted)}
 <dialog id="addDlg">
   <h3 style="margin-top:0">添加成员</h3>
   <label>显示名</label><input id="addName" maxlength="64">
-  <label>SSH 公钥（ssh-ed25519 … 或 ssh-rsa …，对方运行 genc whoami 获得）</label>
+  <label>成员公钥（对方运行 genc whoami 获得，以 ssh-ed25519 开头的一行）</label>
   <textarea id="addKey"></textarea>
   <p id="addFp" class="muted"></p>
   <div class="row" style="justify-content:flex-end">

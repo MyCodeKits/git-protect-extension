@@ -12,7 +12,7 @@
 ### 1.1 要做到
 1. GitHub 仓库可以公开，但上面**只有密文**：源码、提交记录、文件名、分支名、作者信息都不可见。
 2. 本地是**普通 git 仓库**：看代码、log、diff、blame、合并全部照常；VS Code / Visual Studio / JetBrains 不需要任何配置。
-3. 多人协作：每人用自己的 SSH 私钥解锁，**不需要私下传密码**。
+3. 多人协作：每人用自己的密钥对解锁，**不需要私下传密码**。
 4. 支持加人、删人、换密钥、备份恢复，提供命令行和图形管理面板两种入口。
 
 ### 1.2 不做（明确的边界）
@@ -51,7 +51,7 @@
 ```
 README.md                  明文：固定说明"本仓库已加密，使用 genc 访问"
 keys/manifest.json         成员公钥清单（公开），见 4.4
-keys/manifest.sig          清单的 SSH 签名
+keys/manifest.sig          清单签名
 keys/<指纹>.key            每个成员一个锁盒子（文件名用公钥指纹，不暴露人名）
 data/<随机ID>-<序号>.enc    加密的 git 数据包，每次 push 新增一个；大包拆分，每个文件 ≤ 48MB
 index.enc                  加密的索引
@@ -114,17 +114,17 @@ nonce(12B) = 块序号(11B 大端) | 是否最后一块(1B)
 
 ### 4.3 密钥包裹（锁盒子 keys/*.key）
 - 格式：标准 **age** 加密文件，内容就是主密钥 K（32 字节），收件人是成员的公钥。
-- 支持的公钥类型：`ssh-ed25519`（推荐）、`ssh-rsa`（≥3072 位）。这两种既能解锁又能签名。抗量子混合加密留到后续版本。
+- 成员密钥对由 `genc keygen` 内置生成，不依赖 SSH 程序。格式与 OpenSSH 兼容（Ed25519 推荐，RSA ≥3072 位），因此也可以复用已有的 SSH 密钥。这两种既能解锁又能签名。抗量子混合加密留到后续版本。
 - 文件名：`SHA256(公钥)` 前 16 个十六进制字符（公钥指纹）。
 
 ### 4.4 签名清单（keys/manifest.json + manifest.sig）—— 防止"冒名换密钥"
 **要防的攻击**：成员公钥是公开的。有 GitHub 写权限但没有密钥的攻击者，可以强推一份假数据：用自己的密钥 K' 给每个成员做锁盒子。成员解锁后会用 K' 加密新代码，攻击者就能读到。
 
-**对策**：`keys/manifest.json` 记录"仓库ID、密钥ID、全部成员公钥、版本号、签名人、时间"，签名在 `keys/manifest.sig`，由**一位现有成员的 SSH 私钥签名**（OpenSSH 标准签名格式 sshsig，与 git 的 SSH 签名提交相同）。
+**对策**：`keys/manifest.json` 记录"仓库ID、密钥ID、全部成员公钥、版本号、签名人、时间"，签名在 `keys/manifest.sig`，由**一位现有成员的私钥签名**（SSHSIG 签名格式，可用 `ssh-keygen -Y verify` 独立校验）。
 - 只有在**加人、删人、换密钥**时才需要签名。这些都是管理操作，可以交互输入私钥口令；日常 push 不需要签名。
 - 客户端在本地记录"可信成员名单"。
 - 每次 fetch 时检查：密钥 ID 和成员名单没变 → 正常；**发生变化 → 必须由本地可信名单中的成员签名，否则拒绝并报警**。
-- 首次 clone 时没有可信名单，会显示签名人的指纹，提示"请与邀请你的成员核对"（首次使用信任，与 SSH 首次连接主机相同）。
+- 首次 clone 时没有可信名单，会显示签名人的指纹，提示"请与邀请你的成员核对"（首次使用信任，Trust On First Use）。
 
 ### 4.5 防篡改、防回滚
 | 攻击 | 防护 |
@@ -189,7 +189,7 @@ helper 依次尝试本机私钥（`GENC_IDENTITY` 指定的；否则 genc 主目
 ### 7.1 新成员加入
 ```
 ① 新成员李四                  ② 任意现有成员张三                     ③ 李四
-有 SSH 密钥即可                 面板点"添加成员"，或                     git clone genc::https://...
+有密钥对即可                   面板点"添加成员"，或                     git clone genc::https://...
 （没有就 genc keygen）           genc add --github lisi                 核对签名人指纹 → 自动解锁
 把 GitHub 用户名或公钥给张三      ↓ 显示李四的指纹，与李四电话/当面核对
                                ↓ 生成锁盒子、重新签名清单、推送
@@ -201,7 +201,7 @@ helper 依次尝试本机私钥（`GENC_IDENTITY` 指定的；否则 genc 主目
 被移除的人手里已经有主密钥，只删除他的锁盒子没有意义。因此 **移除成员 = 删除他的锁盒子 + 换密钥**（第 8 节），两步在一次操作中自动完成。
 `genc remove 李四` 或面板点"移除"即可，全程自动。
 
-### 7.3 成员更换 SSH 密钥
+### 7.3 成员更换密钥对
 - **由其他成员操作**：`genc rekey 李四 --key new.pub`，只重做李四的锁盒子并重新签名，数据不动。
 - **自己换自己的**：签名清单的签名人必须是清单里的成员，所以不能用旧私钥直接替换自己。做法是先 `genc add --key 新公钥`，再用新私钥 `genc remove 旧公钥`（会顺带换密钥）。
 
@@ -331,7 +331,7 @@ git-remote-genc.exe   给 git 调用的 helper
 `genc doctor`（面板中的"环境检查"）检查：
 - `git-remote-genc` 能否被 git 找到；
 - 机器上**所有** git（系统 git、Visual Studio 自带的 git、SourceTree 自带的 git 等）是否都能找到它；
-- 本机 SSH 私钥是否可用、是否有口令。
+- 本机成员私钥是否可用、是否有口令。
 
 > 安装后需要**重启 IDE**，让 IDE 读到新的 PATH。
 
@@ -381,7 +381,7 @@ git push origin --all && git push origin --tags
 | `genc members` / `genc log` / `genc status` | 查看信息 | 首页 / 操作记录 |
 | `genc doctor` | 环境检查 | 环境检查 |
 | `genc gc` | 合并小数据文件（> 200 个时自动提示） | — |
-| `genc keygen [--passphrase]` | 没有 SSH 密钥的人生成一把 | — |
+| `genc keygen [--passphrase]` | 生成成员密钥对 | — |
 | `genc whoami` | 显示本人公钥和指纹（发给管理员） | — |
 | `genc trust --reset` | 清除本地信任记录（核对指纹后使用） | — |
 | `genc ui` | 打开管理面板 | — |
@@ -409,7 +409,7 @@ git push origin --all && git push origin --tags
 |---|---|
 | 对称加密、HKDF | `golang.org/x/crypto` |
 | 密钥包裹 | `filippo.io/age`（含 agessh） |
-| SSH 签名 | `golang.org/x/crypto/ssh` + sshsig 格式 |
+| 清单签名 | `golang.org/x/crypto/ssh` + SSHSIG 格式（内置实现，不调用外部程序） |
 | git 操作 | 直接调用本机 `git` 命令，不用第三方 git 库，保证与用户环境的行为一致 |
 | 管理面板 | Go 标准库 `net/http` + `embed`，前端是原生 HTML/JS，不依赖框架 |
 
@@ -449,9 +449,9 @@ git push origin --all && git push origin --tags
 
 ### 16.2 已知局限（用户需要知道）
 1. **`git push --no-verify` 会绕过 pre-push 钩子**，明文推送到非 genc 地址。钩子只是防止误操作的安全网，不是强制保障。
-2. **首次 clone 时信任第一次看到的签名人**（与 SSH 首次连接相同）。新成员必须与邀请人核对显示的签名人指纹。
+2. **首次 clone 时信任第一次看到的签名人**（首次使用信任）。新成员必须与邀请人核对显示的签名人指纹。
 3. **移除成员后必须同时收回他在 GitHub 上的写权限。** 否则在其他成员 fetch 到"移除"之前，他可以用自己的私钥签一份假清单，这些成员会接受。
-4. **成员身份可被推断**：公开清单里有成员的 SSH 公钥。拿到某人公钥（例如 `github.com/<用户>.keys`）的人可以判断他是不是成员。人名不会泄露。
+4. **成员身份可被推断**：公开清单里有成员的公钥。拿到某人公钥（例如 `github.com/<用户>.keys`）的人可以判断他是不是成员。人名不会泄露。
 5. **不支持 Git LFS**：LFS 文件会绕过 genc 以明文上传。`genc doctor` 和钩子安装时会检测并警告。
 6. 远端可见的信息：仓库大小、push 时间、成员数量。
 7. 密钥全部丢失且没有备份 = 代码永久无法解密。
@@ -462,7 +462,7 @@ git push origin --all && git push origin --tags
 
 测试统一放在 `test/` 目录：
 ```
-test/unit/   加密格式（往返、篡改、截断、重排、上下文绑定）、SSH 签名（含与 OpenSSH ssh-keygen -Y verify 互通）
+test/unit/   加密格式（往返、篡改、截断、重排、上下文绑定）、清单签名（含与 OpenSSH ssh-keygen -Y verify 互通）
 test/e2e/    编译真实的 genc / git-remote-genc，用真实 git 在多个用户之间跑完整流程
 ```
 - e2e 覆盖：init、push/clone/pull、非快进拒绝与合并、并发推送、删除分支、标签、加人、移除（旧密钥失效）、换密钥（提交 SHA/日期/说明不变）、gc、备份恢复（含错误口令）、口令保护的私钥、管理面板的全部操作和请求防护、rekey、trust reset，以及第 16.1 节的全部攻击模拟。
