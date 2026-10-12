@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>genc 管理</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--fg:#1d2330;--muted:#667085;--line:#e3e6eb;--accent:#2f6fde;--danger:#c4372d;--ok:#1f8a4c}
+@media (prefers-color-scheme:dark){:root{--bg:#14171c;--card:#1d2128;--fg:#e6e8ec;--muted:#98a1b0;--line:#2d333c;--accent:#6b9cf5;--danger:#ef6b61;--ok:#4cc382}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.6 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+main{max-width:860px;margin:0 auto;padding:24px 16px}
+h1{font-size:20px;margin:0 0 4px}
+.sub{color:var(--muted);word-break:break-all}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-top:16px}
+.card h2{font-size:15px;margin:0 0 10px;display:flex;justify-content:space-between;align-items:center}
+table{width:100%;border-collapse:collapse}
+td{padding:6px 4px;border-top:1px solid var(--line);vertical-align:middle}
+code{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:6px;padding:5px 12px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.danger{color:var(--danger)}
+button:disabled{opacity:.5;cursor:wait}
+input,textarea{font:inherit;width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+textarea{min-height:64px;font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.stat b{display:block;font-size:18px}
+.stat span{color:var(--muted);font-size:12px}
+#msg{margin-top:16px;padding:10px 12px;border-radius:8px;display:none;white-space:pre-wrap;word-break:break-all}
+#msg.err{display:block;background:color-mix(in srgb,var(--danger) 12%,transparent);color:var(--danger)}
+#msg.ok{display:block;background:color-mix(in srgb,var(--ok) 12%,transparent);color:var(--ok)}
+.muted{color:var(--muted)}
+dialog{border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--fg);max-width:520px;width:calc(100% - 32px)}
+dialog::backdrop{background:#0006}
+label{display:block;margin:8px 0 4px;color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+  <div class="row" style="justify-content:space-between;align-items:flex-start">
+    <div><h1>🔒 genc 管理</h1><div class="sub" id="url">加载中…</div></div>
+    <button onclick="quit()">退出</button>
+  </div>
+
+  <div class="card">
+    <label for="pass">私钥口令（私钥没有口令则留空；只用于本次操作，不会保存）</label>
+    <input id="pass" type="password" autocomplete="off">
+  </div>
+
+  <div id="msg"></div>
+
+  <div class="card">
+    <h2>状态</h2>
+    <div class="grid">
+      <div class="stat"><b id="sMembers">-</b><span>成员</span></div>
+      <div class="stat"><b id="sAge">-</b><span>密钥已使用（天）</span></div>
+      <div class="stat"><b id="sRefs">-</b><span>分支/标签</span></div>
+      <div class="stat"><b id="sPacks">-</b><span>数据文件</span></div>
+    </div>
+    <p class="muted" id="sKey"></p>
+    <div class="row">
+      <button class="primary" onclick="rotate()">更换密钥</button>
+      <button onclick="backup()">备份密钥</button>
+      <button onclick="load('unlock')">解锁 / 刷新</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>成员 <button class="primary" onclick="addDlg.showModal()">+ 添加成员</button></h2>
+    <table id="members"></table>
+  </div>
+
+  <div class="card">
+    <h2>操作记录</h2>
+    <table id="log"></table>
+  </div>
+</main>
+
+<dialog id="addDlg">
+  <h3 style="margin-top:0">添加成员</h3>
+  <label>显示名</label><input id="addName" maxlength="64">
+  <label>SSH 公钥（ssh-ed25519 … 或 ssh-rsa …，对方运行 genc whoami 获得）</label>
+  <textarea id="addKey"></textarea>
+  <p id="addFp" class="muted"></p>
+  <div class="row" style="justify-content:flex-end">
+    <button onclick="addDlg.close()">取消</button>
+    <button onclick="checkFp()">计算指纹</button>
+    <button class="primary" onclick="addMember()">确认添加</button>
+  </div>
+</dialog>
+
+<script>
+const TOKEN = "{{TOKEN}}";
+const $ = id => document.getElementById(id);
+history.replaceState(null, "", "/");
+
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function show(text, ok){const m=$("msg");m.textContent=text;m.className=ok?"ok":"err"}
+function busy(on){document.querySelectorAll("button").forEach(b=>b.disabled=on)}
+
+async function call(op, body={}){
+  busy(true);
+  try{
+    const r = await fetch("/api/"+op,{method:"POST",headers:{"Content-Type":"application/json","X-Genc-Token":TOKEN},
+      body:JSON.stringify(Object.assign({passphrase:$("pass").value},body))});
+    const j = await r.json();
+    if(j.error){ show(j.error + (j.needPassphrase?"\n请在上方输入私钥口令后重试。":""), false); return null; }
+    return j;
+  }catch(e){ show("请求失败："+e, false); return null; }
+  finally{ busy(false); }
+}
+
+function render(s){
+  $("url").textContent = s.url;
+  $("sMembers").textContent = s.members.length;
+  $("sAge").textContent = s.keyAgeDays;
+  $("sRefs").textContent = s.refs;
+  $("sPacks").textContent = s.packs;
+  $("sKey").textContent = "仓库 ID " + s.repoId + " · 密钥 ID " + s.keyId + (s.hookWarning ? " · ⚠ " + s.hookWarning : "");
+  $("members").innerHTML = s.members.map(m =>
+    `<tr><td>${esc(m.name)}${m.me?' <span class="muted">（你）</span>':''}</td><td><code>${esc(m.fp)}</code></td>
+     <td style="text-align:right">${m.me?'':`<button class="danger" data-fp="${esc(m.fp)}" data-name="${esc(m.name)}">移除</button>`}</td></tr>`).join("");
+  $("members").querySelectorAll("button[data-fp]").forEach(b => b.onclick = () => removeMember(b.dataset.fp, b.dataset.name));
+  $("log").innerHTML = (s.log||[]).map(e => `<tr><td class="muted">${esc(e.t)}</td><td>${esc(e.by)}</td><td>${esc(e.op)}</td></tr>`).join("")
+    || '<tr><td class="muted">暂无</td></tr>';
+}
+
+async function load(op="status"){ const s = await call(op); if(s){ render(s); if(op==="unlock") show("已解锁并刷新。", true);} }
+
+async function rotate(){
+  if(!confirm("将生成新密钥，并用新密钥重新加密全部数据后覆盖远端存储分支。\n代码和提交历史不会改变。确认？")) return;
+  const s = await call("rotate"); if(s){ render(s); show("已更换密钥。请立即备份新密钥。", true); }
+}
+async function backup(){
+  const b = await call("backup");
+  if(b) show("备份文件：" + b.path + "\n恢复口令：" + b.passphrase + "\n请把文件和口令分开离线保存。更换密钥后需要重新备份。", true);
+}
+async function checkFp(){
+  const r = await call("fingerprint",{key:$("addKey").value});
+  if(r) $("addFp").textContent = "指纹：" + r.fp + "（请通过电话/当面与对方核对）";
+}
+async function addMember(){
+  const r = await call("fingerprint",{key:$("addKey").value}); if(!r) return;
+  if(!confirm("指纹 " + r.fp + "\n已与对方核对一致？")) return;
+  const s = await call("add",{key:$("addKey").value,name:$("addName").value});
+  if(s){ addDlg.close(); render(s); show("已添加。对方现在可以 git clone genc::" + s.url, true); }
+}
+async function removeMember(fp, name){
+  if(!confirm("移除 " + name + "（" + fp + "）？\n将同时更换密钥并重新加密全部数据。")) return;
+  const s = await call("remove",{fp}); if(s){ render(s); show("已移除并更换密钥。请同时收回他在 GitHub 上的写权限，并备份新密钥。", true); }
+}
+async function quit(){ await call("quit"); document.body.innerHTML = '<main><h1>已退出</h1><p class="muted">可以关闭此页面。</p></main>'; }
+load();
+</script>
+</body>
+</html>
