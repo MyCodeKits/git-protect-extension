@@ -31,6 +31,10 @@ func main() {
 	if strings.HasPrefix(base, "git-remote-protect") {
 		os.Exit(runHelper(os.Args[1:]))
 	}
+	// package managers that cannot install a second copy of the binary (npm) call it this way
+	if len(os.Args) > 1 && os.Args[1] == "remote-helper" {
+		os.Exit(runHelper(os.Args[2:]))
+	}
 	os.Exit(runCLI(os.Args[1:]))
 }
 

@@ -61,7 +61,6 @@ Git 允许通过外部程序扩展远程传输方式。远程地址写成 `prote
 | 平台 | 文件 |
 |---|---|
 | Windows（64 位） | `git-protect_<版本>_windows_amd64.zip` |
-| Windows（ARM） | `git-protect_<版本>_windows_arm64.zip` |
 | macOS（Apple 芯片） | `git-protect_<版本>_darwin_arm64.tar.gz` |
 | macOS（Intel） | `git-protect_<版本>_darwin_amd64.tar.gz` |
 | Linux | `git-protect_<版本>_linux_amd64.tar.gz` / `linux_arm64.tar.gz` |
@@ -545,7 +544,8 @@ cmd_git.go         Git 调用封装（隔离环境变量，禁用钩子与签名
 cmd_util.go        原子写入、文件权限、文件锁
 internal/crypt     加密文件格式
 internal/sshsig    清单签名（SSHSIG 格式）
-scripts/           安装与打包脚本
+scripts/           安装、打包与 npm 发布脚本
+npm/               npm 主包的命令入口
 .github/workflows  持续集成与自动发布
 test/              单元测试与端到端测试
 DESIGN.md          完整设计文档
@@ -560,9 +560,11 @@ cp bin/git-protect bin/git-remote-protect      # Windows 下为 .exe
 
 ### 发布
 
-推送代码或提交 PR 时，GitHub Actions 会在 Windows、macOS、Linux 上运行全部测试。推送版本标签时，会在测试通过后编译全部平台，并自动创建 Release：
+推送代码或提交 PR 时，GitHub Actions 会在 Windows、macOS、Linux 上运行全部测试。推送版本标签时，会在测试通过后编译全部平台，自动创建 Release：
 ```sh
 git tag v0.1.0
 git push github v0.1.0
 ```
-本地生成同样的发布包：`sh scripts/package.sh v0.1.0 dist`。
+本地生成同样的发布包：`sh scripts/package.sh v0.1.0 dist`；生成 npm 包：`sh scripts/npm-build.sh v0.1.0 npm-dist`。
+
+npm 分发（`npm install -g git-protect`）的打包与发布脚本已经就绪，在仓库 Secrets 中配置 `NPM_TOKEN` 后会随版本标签自动发布；目前 npm 上的包尚未发布完整，请先使用 Releases 中的发布包。

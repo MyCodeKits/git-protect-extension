@@ -7,7 +7,7 @@ set -eu
 version=${1:?usage: package.sh <version> [output-dir]}
 out=${2:-dist}
 root=$(cd "$(dirname "$0")/.." && pwd)
-targets="windows/amd64 windows/arm64 darwin/amd64 darwin/arm64 linux/amd64 linux/arm64"
+targets="windows/amd64 darwin/amd64 darwin/arm64 linux/amd64 linux/arm64"
 
 rm -rf "$out"
 mkdir -p "$out"
